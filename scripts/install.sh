@@ -376,20 +376,13 @@ success "Image pulled"
 # ─────────────────────────────────────────────────────────────────────────────
 install_cli_wrapper() {
     info "Installing 'clawforce' CLI wrapper..."
-    local wrapper_path="/usr/local/bin/clawforce"
-    local use_sudo=""
+    local install_dir="$HOME/.local/bin"
+    local wrapper_path="$install_dir/clawforce"
 
     # Ensure we're in a valid directory (avoids "chdir: cannot access parent" when cwd is stale)
     cd "${TMPDIR:-/tmp}" 2>/dev/null || cd /tmp 2>/dev/null || true
 
-    if [ ! -w /usr/local/bin ]; then
-        if command -v sudo >/dev/null 2>&1; then
-            use_sudo="sudo"
-        else
-            warn "Cannot write to /usr/local/bin and sudo is not available. Skipping CLI wrapper."
-            return 1
-        fi
-    fi
+    mkdir -p "$install_dir"
 
     local tmpfile
     tmpfile="$(mktemp)" || { warn "Could not create temp file. Skipping CLI wrapper."; return 1; }
@@ -487,11 +480,21 @@ case "$1" in
 esac
 EOF
     chmod +x "$tmpfile"
-    $use_sudo mv "$tmpfile" "$wrapper_path" 2>/dev/null || true
-    rm -f "$tmpfile" 2>/dev/null || true
-    
+    mv "$tmpfile" "$wrapper_path" 2>/dev/null || { rm -f "$tmpfile" 2>/dev/null; warn "Failed to install CLI wrapper."; return 1; }
+
     if command_exists clawforce; then
-        success "CLI wrapper installed globally (run 'clawforce' to manage container)"
+        success "CLI wrapper installed (run 'clawforce' to manage container)"
+    else
+        # $HOME/.local/bin is not in PATH — advise the user
+        warn "'$install_dir' is not in your PATH."
+        echo "  Add it by running:"
+        echo ""
+        if [ -f "$HOME/.zshrc" ]; then
+            echo "    echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
+        else
+            echo "    echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
+        fi
+        echo ""
     fi
 }
 
