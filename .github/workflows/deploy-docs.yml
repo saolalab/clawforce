@@ -8,6 +8,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read  # Required by deploy-pages@v4
 
 concurrency:
   group: pages
@@ -52,4 +53,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@4
+        uses: actions/deploy-pages@v4
