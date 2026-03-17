@@ -1,0 +1,62 @@
+[project]
+name = "clawlib"
+dynamic = ["version"]
+description = "Shared technical library for clawforce and clawbot"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Hung Tran", email = "hungtd9@gmail.com"}
+]
+keywords = ["ai", "agent", "library", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "loguru>=0.7.0",
+    "pyyaml>=6.0",
+    "croniter>=2.0.0",
+    "httpx>=0.25.0",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3>=1.28.0"]
+telegram = ["python-telegram-bot[socks]>=21.0"]
+slack = ["slack-sdk>=3.26.0", "slackify-markdown>=0.2.0"]
+discord = []
+feishu = ["lark-oapi>=1.0.0"]
+whatsapp = []
+email = []
+all-channels = [
+    "clawlib[telegram,slack,discord,feishu,whatsapp,email]",
+]
+
+[project.urls]
+Homepage = "https://github.com/saolalab/clawforce"
+Documentation = "https://github.com/saolalab/clawforce#readme"
+Repository = "https://github.com/saolalab/clawforce"
+Issues = "https://github.com/saolalab/clawforce/issues"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0.dev0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["clawlib"]
+
+[tool.hatch.build]
+include = [
+    "clawlib/**/*.py",
+]

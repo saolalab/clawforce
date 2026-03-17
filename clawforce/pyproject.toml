@@ -1,0 +1,66 @@
+[project]
+name = "clawforce"
+dynamic = ["version"]
+description = "Multi-agent team admin and control plane"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Hung Tran", email = "hungtd9@gmail.com"}
+]
+keywords = ["ai", "agent", "multi-agent", "team", "automation", "admin", "control-plane"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Framework :: FastAPI",
+]
+dependencies = [
+    "clawlib[all-channels]",
+    "fastapi>=0.115.0",
+    "slowapi>=0.1.9",
+    "uvicorn[standard]>=0.30.0",
+    "python-jose[cryptography]>=3.3.0",
+    "bcrypt>=4.0.1",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=2.0.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "docker>=7.0.0",
+]
+
+[project.optional-dependencies]
+s3 = ["clawlib[s3]"]
+
+[project.scripts]
+clawforce = "clawforce.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/saolalab/clawforce"
+Documentation = "https://github.com/saolalab/clawforce#readme"
+Repository = "https://github.com/saolalab/clawforce"
+Issues = "https://github.com/saolalab/clawforce/issues"
+
+[tool.uv.sources]
+clawlib = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0.dev0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["clawforce"]
+
+[tool.hatch.build]
+include = [
+    "clawforce/**/*.py",
+    "clawforce/templates/**/*.md",
+]
