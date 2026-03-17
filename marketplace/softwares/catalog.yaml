@@ -1,0 +1,202 @@
+- id: claude-code
+  name: Claude Code
+  icon: terminal
+  author: Anthropic
+  description: >-
+    AI coding agent by Anthropic. Delegates complex coding tasks -- reads,
+    writes, and refactors code autonomously.
+  version: latest
+  categories:
+    - coding
+    - agent
+  install:
+    type: npm
+    package: "@anthropic-ai/claude-code@latest"
+  run:
+    command: claude
+    args:
+      - "-p"
+    stdin: false
+  required_env:
+    - ANTHROPIC_API_KEY
+
+- id: codex-cli
+  name: OpenAI Codex CLI
+  icon: terminal
+  author: OpenAI
+  description: >-
+    AI coding agent by OpenAI. Delegates coding tasks with full filesystem
+    access.
+  version: latest
+  categories:
+    - coding
+    - agent
+  install:
+    type: npm
+    package: "@openai/codex@latest"
+  run:
+    command: codex
+    args:
+      - exec
+      - "--full-auto"
+    stdin: false
+  required_env:
+    - OPENAI_API_KEY
+
+- id: gemini-cli
+  name: Gemini CLI
+  icon: terminal
+  author: Google
+  description: >-
+    AI coding agent by Google. Delegates coding tasks with Gemini models --
+    reads, edits, and generates code autonomously.
+  version: latest
+  categories:
+    - coding
+    - agent
+  install:
+    type: npm
+    package: "@google/gemini-cli@latest"
+  run:
+    command: gemini
+    args:
+      - "-p"
+    stdin: false
+  required_env:
+    - GEMINI_API_KEY
+
+- id: gh
+  name: GitHub CLI
+  icon: github
+  author: GitHub
+  description: >-
+    GitHub's official command line tool. Work with issues, pull requests,
+    releases, and the GitHub API from the terminal. Authenticate with GH_TOKEN.
+  version: "2.87.3"
+  skill_content: |
+    Use the `gh` CLI to interact with GitHub. Run via the `software_exec` tool with key `gh`.
+    Always specify `--repo owner/repo` when not in a git directory.
+
+    **Authentication:** Set `GH_TOKEN` (GitHub Personal Access Token) at install. Create tokens at https://github.com/settings/tokens with scopes like `repo`, `read:org` as needed.
+
+    ## Pull Requests
+
+    **Creating a PR:** Before `gh pr create`, push the branch and set upstream (otherwise "no upstream branch configured"). Ensure `origin` remote exists (`git remote -v`). Run as **separate** commands (command substitution is blocked in exec):
+    ```bash
+    git branch --show-current
+    ```
+    Then use the output as BRANCH and run:
+    ```bash
+    git push -u origin BRANCH
+    gh pr create --fill
+    ```
+
+    Check CI status on a PR:
+    ```bash
+    gh pr checks 55 --repo owner/repo
+    ```
+
+    List PRs, view a PR:
+    ```bash
+    gh pr list --repo owner/repo --state open
+    gh pr view 55 --repo owner/repo
+    ```
+
+    ## Issues
+
+    List and view issues:
+    ```bash
+    gh issue list --repo owner/repo --state open
+    gh issue view 123 --repo owner/repo
+    ```
+
+    ## Workflow Runs (CI)
+
+    List recent workflow runs:
+    ```bash
+    gh run list --repo owner/repo --limit 10
+    ```
+
+    View a run and see which steps failed:
+    ```bash
+    gh run view <run-id> --repo owner/repo
+    gh run view <run-id> --repo owner/repo --log-failed
+    ```
+
+    ## API for Advanced Queries
+
+    Use `gh api` for data not available through other subcommands:
+    ```bash
+    gh api repos/owner/repo/pulls/55 --jq '.title, .state, .user.login'
+    ```
+
+    ## JSON Output
+
+    Most commands support `--json` and `--jq` for structured output:
+    ```bash
+    gh issue list --repo owner/repo --json number,title --jq '.[] | "\(.number): \(.title)"'
+    ```
+  categories:
+    - devops
+    - git
+    - coding
+  install:
+    type: shell
+    package: >-
+      set -e;
+      ARCH=$(uname -m);
+      case "$ARCH" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; *) ARCH=amd64;; esac;
+      GHS_VERSION="2.87.3";
+      BIN_DIR="${HOME}/.local/bin";
+      mkdir -p "$BIN_DIR";
+      curl -fsSL "https://github.com/cli/cli/releases/download/v${GHS_VERSION}/gh_${GHS_VERSION}_linux_${ARCH}.tar.gz" | tar xz -C /tmp --no-same-owner;
+      mv /tmp/gh_${GHS_VERSION}_linux_${ARCH}/bin/gh "$BIN_DIR/";
+      chmod +x "$BIN_DIR/gh";
+      rm -rf /tmp/gh_${GHS_VERSION}_linux_${ARCH}
+  run:
+    command: gh
+    args: []
+    stdin: false
+  required_env:
+    - GH_TOKEN
+
+- id: whatsapp-bridge
+  name: WhatsApp Bridge
+  icon: message-circle
+  author: Clawbot
+  description: >-
+    Connect agents to WhatsApp via Baileys. Enables bidirectional messaging
+    through WebSocket bridge.
+  version: "0.1.0"
+  categories:
+    - channel
+    - messaging
+  install:
+    type: npm
+    package: "https://github.com/saolalab/clawforce/releases/download/bridge%2Fv0.1.0/clawbot-whatsapp-bridge-0.1.0.tgz"
+  run:
+    command: clawbot-whatsapp-bridge
+    args: []
+    stdin: false
+    port: 3001
+
+# Zalo Personal Bridge — disabled for now, enable later
+# - id: zalo-personal-bridge
+#   name: Zalo Personal Bridge
+#   icon: message-circle
+#   author: Clawbot
+#   description: >-
+#     Connect agents to Zalo Personal accounts via zca-js. Enables bidirectional
+#     messaging through WebSocket bridge. Requires QR-code login on first run.
+#   version: "0.1.0"
+#   categories:
+#     - channel
+#     - messaging
+#   install:
+#     type: npm
+#     package: "https://github.com/saolalab/clawforce/releases/download/bridge%2Fzalo%2Fv0.1.0/clawbot-zalo-personal-bridge-0.1.0.tgz"
+#   run:
+#     command: clawbot-zalo-personal-bridge
+#     args: []
+#     stdin: false
+#     port: 3002

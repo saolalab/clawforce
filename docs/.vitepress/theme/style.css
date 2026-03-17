@@ -1,0 +1,126 @@
+/**
+ * Clawforce UI theme for VitePress
+ * Single warm beige palette - no accent color
+ */
+
+:root {
+  /* Single color for non-home: #faf9f6 (no #ede8db) */
+  --claw-bg: #faf9f6;
+  --claw-surface: #f0ede6;
+  --claw-surface-alt: #e8e2d9;
+  --claw-hover: #e3ddd4;
+  --claw-border: #ddd7ce;
+  --claw-border-strong: #c5beb5;
+  --claw-text-primary: #1a1a1a;
+  --claw-text-secondary: #3d3833;
+  --claw-text-tertiary: #6b6560;
+  --claw-text-muted: #9b958f;
+
+  /* Background - single color #faf9f6 for nav, sidebar, content */
+  --vp-c-bg: var(--claw-bg);
+  --vp-c-bg-alt: var(--claw-bg);
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: var(--claw-surface);
+
+  /* Borders */
+  --vp-c-border: var(--claw-border);
+  --vp-c-divider: var(--claw-border);
+  --vp-c-gutter: var(--claw-border);
+
+  /* Text - all from same palette */
+  --vp-c-text-1: var(--claw-text-primary);
+  --vp-c-text-2: var(--claw-text-secondary);
+  --vp-c-text-3: var(--claw-text-tertiary);
+
+  /* Brand = text-primary (no separate accent) */
+  --vp-c-brand-1: var(--claw-text-primary);
+  --vp-c-brand-2: var(--claw-text-secondary);
+  --vp-c-brand-3: var(--claw-text-primary);
+  --vp-c-brand-soft: var(--claw-surface-alt);
+  --vp-c-brand: var(--claw-text-primary);
+
+  /* Default (hover states) */
+  --vp-c-default-1: var(--claw-border-strong);
+  --vp-c-default-2: var(--claw-hover);
+  --vp-c-default-3: var(--claw-surface-alt);
+  --vp-c-default-soft: var(--claw-surface-alt);
+
+  /* Nav & Sidebar - same #faf9f6 as content */
+  --vp-nav-bg-color: var(--claw-bg);
+  --vp-nav-screen-bg-color: var(--claw-bg);
+  --vp-sidebar-bg-color: var(--claw-bg);
+  --vp-local-nav-bg-color: var(--claw-bg);
+
+  /* Code - same palette, no orange */
+  --vp-code-block-bg: var(--claw-surface);
+  --vp-code-bg: var(--claw-surface-alt);
+  --vp-code-color: var(--claw-text-secondary);
+  --vp-code-link-color: var(--claw-text-primary);
+  --vp-code-link-hover-color: var(--claw-text-secondary);
+
+  /* Home hero */
+  --vp-home-hero-name-color: var(--claw-text-primary);
+
+  /* Button brand - surface style */
+  --vp-button-brand-bg: var(--claw-surface-alt);
+  --vp-button-brand-text: var(--claw-text-primary);
+  --vp-button-brand-hover-bg: var(--claw-hover);
+  --vp-button-brand-hover-text: var(--claw-text-primary);
+  --vp-button-brand-active-bg: var(--claw-border);
+  --vp-button-brand-active-text: var(--claw-text-primary);
+}
+
+
+/* Responsive video embed (Loom, etc.) */
+.video-container {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 16 / 9;
+  margin: 1rem auto;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--claw-surface);
+}
+
+.video-container iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Inline code & links - same palette */
+.VPDoc a,
+.vp-doc a {
+  color: var(--claw-text-primary) !important;
+}
+
+.vp-doc a:hover {
+  color: var(--claw-text-secondary) !important;
+}
+
+.vp-doc :not(pre) > code {
+  color: var(--claw-text-secondary) !important;
+  background-color: var(--claw-surface-alt) !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--claw-border-strong);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--claw-text-muted);
+}

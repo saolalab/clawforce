@@ -1,0 +1,92 @@
+[project]
+name = "clawbot"
+dynamic = ["version"]
+description = "A lightweight personal AI assistant framework"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Hung Tran", email = "hungtd9@gmail.com"}
+]
+keywords = ["ai", "agent", "chatbot", "assistant", "automation", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Communications :: Chat",
+]
+dependencies = [
+    "clawlib",
+    "typer>=0.9.0",
+    "litellm>=1.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "websockets>=12.0",
+    "websocket-client>=1.6.0",
+    "httpx>=0.25.0",
+    "oauth-cli-kit>=0.1.1",
+    "loguru>=0.7.0",
+    "readability-lxml>=0.8.0",
+    "rich>=13.0.0",
+    "croniter>=2.0.0",
+    "socksio>=1.0.0",
+    "python-socketio>=5.11.0",
+    "msgpack>=1.0.8",
+    "python-socks[asyncio]>=2.4.0",
+    "mcp>=1.0.0",
+    "json-repair>=0.30.0",
+    "ddgs>=1.0",
+    "pyyaml>=6.0",
+    "pypdf>=4.0.0",
+]
+
+[project.optional-dependencies]
+telegram = ["python-telegram-bot[socks]>=21.0"]
+slack = ["slack-sdk>=3.26.0", "slackify-markdown>=0.2.0"]
+discord = []
+feishu = ["lark-oapi>=1.0.0"]
+whatsapp = []
+email = []
+all-channels = [
+    "clawbot[telegram,slack,discord,feishu,whatsapp,email]",
+]
+
+[project.scripts]
+clawbot = "clawbot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/saolalab/clawforce"
+Documentation = "https://github.com/saolalab/clawforce#readme"
+Repository = "https://github.com/saolalab/clawforce"
+Issues = "https://github.com/saolalab/clawforce/issues"
+
+[project.entry-points."clawbot.tools"]
+# Third-party packages can register tools here, e.g.:
+# my_plugin = "my_plugin.tools:MyTool"
+
+[tool.uv.sources]
+clawlib = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0.dev0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["clawbot"]
+
+[tool.hatch.build]
+include = [
+    "clawbot/**/*.py",
+    "clawbot/skills/**/*.md",
+    "clawbot/skills/**/*.sh",
+    "clawbot/templates/**/*.md",
+    "clawbot/templates/**/*.yaml",
+]

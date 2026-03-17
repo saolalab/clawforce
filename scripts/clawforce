@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+# clawforce - A simple wrapper to control the Clawforce Docker container
+#
+# Installation: 
+# sudo ln -s $(pwd)/clawforce /usr/local/bin/clawforce
+# or
+# sudo cp clawforce /usr/local/sbin/clawforce
+
+CONTAINER="${CLAWFORCE_CONTAINER:-clawforce}"
+
+show_help() {
+    echo "Usage: clawforce <command>"
+    echo ""
+    echo "Commands:"
+    echo "  start     Start the Clawforce container"
+    echo "  stop      Stop the Clawforce container"
+    echo "  clean     Stop and remove the Clawforce container"
+    echo "  restart   Restart the Clawforce container"
+    echo "  logs      View container logs"
+    echo "  status    Check container status"
+}
+
+if [ $# -eq 0 ]; then
+    show_help
+    exit 1
+fi
+
+case "$1" in
+    start)
+        echo "Starting $CONTAINER..."
+        docker start "$CONTAINER"
+        ;;
+    stop)
+        echo "Stopping $CONTAINER..."
+        docker stop "$CONTAINER"
+        ;;
+    clean)
+        echo "Cleaning $CONTAINER..."
+        docker stop "$CONTAINER" 2>/dev/null || true
+        docker rm "$CONTAINER" 2>/dev/null || true
+        echo "Cleaned."
+        ;;
+    restart)
+        echo "Restarting $CONTAINER..."
+        docker restart "$CONTAINER"
+        ;;
+    logs)
+        docker logs -f "$CONTAINER"
+        ;;
+    status)
+        docker ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        ;;
+    *)
+        echo "Unknown command: $1"
+        show_help
+        exit 1
+        ;;
+esac

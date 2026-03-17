@@ -1,0 +1,32 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+dist/
+build/
+.git
+.env
+.env.*
+.assets
+.admin_data/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cursor/
+.vscode/
+.idea/
+workspace/
+tests/
+*.log
+
+# Node build artifacts (rebuilt inside Docker)
+admin-frontend/node_modules/
+bridge/node_modules/
+bridge/dist/
+clawforce-ui/node_modules/
+
+# Pre-built static (rebuilt in Docker from source)
+admin_api/static/
