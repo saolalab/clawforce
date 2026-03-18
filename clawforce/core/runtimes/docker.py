@@ -75,6 +75,7 @@ def _is_podman_daemon(client) -> bool:
         pass
     return result
 
+
 PERMISSIVE_PRESET: dict[str, Any] = {
     "mem_limit": AGENT_DOCKER_MEM_LIMIT,
     "cpu_quota": AGENT_DOCKER_CPU_QUOTA,
@@ -457,9 +458,7 @@ class DockerRuntime(WorkerRuntimeBase):
             is_podman = _is_podman_daemon(self._client())
             # Docker needs explicit extra_hosts for host.docker.internal on Linux;
             # Podman resolves it natively — no extra_hosts needed.
-            needs_host_gateway = (
-                "host.docker.internal" in admin_url and not is_podman
-            )
+            needs_host_gateway = "host.docker.internal" in admin_url and not is_podman
             admin_network = None if remote else _detect_admin_network(self._client())
 
             def _run():
