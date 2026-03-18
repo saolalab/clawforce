@@ -92,6 +92,7 @@ async def install_software(
     command = run_cfg.get("command", "")
     args = run_cfg.get("args") or []
     stdin = bool(run_cfg.get("stdin", False))
+    post_install = entry.get("post_install")
 
     try:
         result = await runtime.install_software(
@@ -106,6 +107,7 @@ async def install_software(
             args=args,
             stdin=stdin,
             env=body.env,
+            post_install=post_install,
         )
     except Exception as e:
         logger.exception("Failed to install software")

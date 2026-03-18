@@ -194,6 +194,41 @@ async def _run_with_pty(
     return _strip_ansi(output.decode("utf-8", errors="replace")).strip()
 
 
+async def _run_post_install(post_install: dict[str, Any], install_type: str) -> None:
+    """Run post_install hook after software install. Supports daemon mode for long-running processes.
+
+    post_install: { "command": str, "args"?: list, "daemon"?: bool }
+    If daemon is True, spawns process in background without waiting.
+    """
+    cmd_str = post_install.get("command") or ""
+    if not cmd_str:
+        return
+    args_list = post_install.get("args") or []
+    daemon = bool(post_install.get("daemon", False))
+    env = dict(os.environ)
+    resolved = await _resolve_command(cmd_str, env)
+    full_cmd = [resolved] + [str(a) for a in args_list]
+    if daemon:
+        proc = await asyncio.create_subprocess_exec(
+            *full_cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
+        logger.info(f"Started post-install daemon: {' '.join(full_cmd)} (pid={proc.pid})")
+    else:
+        proc = await asyncio.create_subprocess_exec(
+            *full_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=60.0)
+        if proc.returncode != 0:
+            raise RuntimeError(f"post_install exited with code {proc.returncode}")
+
+
 async def _resolve_installed_command(command: str, install_type: str) -> str:
     if not command:
         return command
@@ -334,6 +369,7 @@ class SoftwareManagement:
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
         stdin: bool = False,
+        post_install: dict | None = None,
     ) -> dict[str, Any]:
         """
         Run install (npm/pip/shell), persist entry to config, update in-memory.
@@ -398,6 +434,8 @@ class SoftwareManagement:
             "installed_at": datetime.now(timezone.utc).isoformat(),
             "verified": verified,
         }
+        if post_install:
+            entry["post_install"] = post_install
         self._catalog[key] = entry
         self.save()
 
@@ -407,6 +445,14 @@ class SoftwareManagement:
 
         self._write_skill(key, entry, skill_content=skill_content)
         self._update_lock(key, entry)
+
+        if post_install:
+            try:
+                await _run_post_install(post_install, install_type)
+                msg = (msg.rstrip(".") + ". Post-install started.").strip()
+            except Exception as e:
+                logger.warning(f"Post-install failed for '{key}': {e}")
+                msg = (msg.rstrip(".") + f". Post-install failed: {e}").strip()
 
         return {
             "ok": True,
@@ -793,6 +839,14 @@ class SoftwareManagement:
                 entry["command"] = resolved
                 updated = True
             logger.info(f"Software '{key}' re-installed successfully")
+
+            post_install = entry.get("post_install")
+            if isinstance(post_install, dict):
+                try:
+                    await _run_post_install(post_install, install_type)
+                    logger.info(f"Started post-install for '{key}'")
+                except Exception as e:
+                    logger.warning(f"Post-install failed for '{key}' after reinstall: {e}")
 
         if updated:
             self.save()

@@ -261,6 +261,7 @@ class WorkerRuntimeBase(AgentRuntimeBackend):
         args: list[str] | None = None,
         stdin: bool = False,
         env: dict[str, str] | None = None,
+        post_install: dict | None = None,
     ) -> dict:
         if not self._is_ws_connected(agent_id):
             raise AgentRuntimeError(f"Agent {agent_id} is not connected")
@@ -277,6 +278,7 @@ class WorkerRuntimeBase(AgentRuntimeBackend):
             args=args or [],
             stdin=stdin,
             env=env or {},
+            post_install=post_install,
             timeout=90.0,
         )
         if resp and resp.get("ok"):

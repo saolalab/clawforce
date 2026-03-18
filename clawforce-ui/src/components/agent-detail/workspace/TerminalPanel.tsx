@@ -93,7 +93,11 @@ export function TerminalPanel({
     };
     window.addEventListener("resize", onResize);
 
+    const ro = new ResizeObserver(onResize);
+    ro.observe(containerRef.current);
+
     return () => {
+      ro.disconnect();
       window.removeEventListener("resize", onResize);
       ws?.close();
       term.dispose();
