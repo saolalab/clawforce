@@ -21,6 +21,8 @@ ADMIN_USER="${CLAWFORCE_ADMIN_USER:-admin}"
 ADMIN_PASS="${CLAWFORCE_ADMIN_PASS:-admin}"
 SKIP_DOCKER_INSTALL="${CLAWFORCE_SKIP_DOCKER:-false}"
 PROCESS_RUNTIME="${CLAWFORCE_PROCESS_RUNTIME:-${CLAWFORCE_PROCESS_POOL:-false}}"
+# Container engine: docker (default) or podman
+ENGINE="${CLAWFORCE_ENGINE:-}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parse arguments
@@ -36,13 +38,15 @@ Options:
   --data DIR            Data directory (default: ~/.clawforce/data)
   --admin-user USER     Admin username (default: admin)
   --admin-pass PASS     Admin password (default: admin)
-  --process-runtime     Use process runtime instead of Docker isolation (alias: --process-pool)
-  --skip-docker         Skip Docker installation check
+  --engine ENGINE       Container engine: docker or podman (default: auto-detect)
+  --process-runtime     Use process runtime instead of container isolation (alias: --process-pool)
+  --skip-docker         Skip Docker/Podman installation check
   --uninstall           Remove Clawforce container and optionally data
   -h, --help            Show this help message
 
 Environment variables:
-  CLAWFORCE_IMAGE       Docker image (default: ghcr.io/saolalab/clawforce:latest)
+  CLAWFORCE_IMAGE       Container image (default: ghcr.io/saolalab/clawforce:latest)
+  CLAWFORCE_ENGINE      Container engine: docker or podman (default: auto-detect)
   CLAWFORCE_PORT        Port to expose
   CLAWFORCE_DATA        Data directory path
   CLAWFORCE_ADMIN_USER  Admin username
@@ -69,6 +73,7 @@ while [[ $# -gt 0 ]]; do
         --data)         DATA_DIR="$2"; shift 2 ;;
         --admin-user)   ADMIN_USER="$2"; shift 2 ;;
         --admin-pass)   ADMIN_PASS="$2"; shift 2 ;;
+        --engine)       ENGINE="$2"; shift 2 ;;
         --process-pool|--process-runtime) PROCESS_RUNTIME=true; shift ;;
         --skip-docker)  SKIP_DOCKER_INSTALL=true; shift ;;
         --uninstall)    UNINSTALL=true; shift ;;
@@ -113,26 +118,40 @@ detect_arch() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Auto-detect container engine
+# ─────────────────────────────────────────────────────────────────────────────
+if [ -z "$ENGINE" ]; then
+    if command_exists docker; then
+        ENGINE="docker"
+    elif command_exists podman; then
+        ENGINE="podman"
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Uninstall
 # ─────────────────────────────────────────────────────────────────────────────
 if $UNINSTALL; then
+    if [ -z "$ENGINE" ]; then
+        die "Neither docker nor podman found. Nothing to uninstall."
+    fi
     info "Uninstalling Clawforce..."
-    
+
     # Stop and remove container
-    if docker inspect "$CONTAINER" &>/dev/null; then
+    if $ENGINE inspect "$CONTAINER" &>/dev/null; then
         info "Stopping container..."
-        docker stop "$CONTAINER" 2>/dev/null || true
-        docker rm "$CONTAINER" 2>/dev/null || true
+        $ENGINE stop "$CONTAINER" 2>/dev/null || true
+        $ENGINE rm "$CONTAINER" 2>/dev/null || true
         success "Container removed"
     else
         info "Container not found"
     fi
-    
+
     # Stop agent workers
-    AGENT_CONTAINERS=$(docker ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
+    AGENT_CONTAINERS=$($ENGINE ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
     if [ -n "$AGENT_CONTAINERS" ]; then
         info "Stopping agent workers..."
-        echo "$AGENT_CONTAINERS" | xargs docker rm -f 2>/dev/null || true
+        echo "$AGENT_CONTAINERS" | xargs $ENGINE rm -f 2>/dev/null || true
         success "Agent workers removed"
     fi
     
@@ -168,10 +187,54 @@ echo ""
 OS=$(detect_os)
 ARCH=$(detect_arch)
 info "Detected: $OS ($ARCH)"
+if [ -n "$ENGINE" ]; then
+    info "Container engine: $ENGINE"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Docker Installation
+# Container Engine Installation
 # ─────────────────────────────────────────────────────────────────────────────
+install_podman_linux() {
+    info "Installing Podman on Linux..."
+
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+    else
+        DISTRO="unknown"
+    fi
+
+    case "$DISTRO" in
+        ubuntu|debian|linuxmint|pop)
+            sudo apt-get update
+            sudo apt-get install -y podman
+            ;;
+        fedora|rhel|centos|rocky|almalinux)
+            sudo dnf install -y podman 2>/dev/null || sudo yum install -y podman
+            ;;
+        arch|manjaro)
+            sudo pacman -Sy --noconfirm podman
+            ;;
+        *)
+            die "Unsupported distro for automatic Podman install. Please install Podman manually."
+            ;;
+    esac
+    success "Podman installed"
+}
+
+install_podman_macos() {
+    if command_exists brew; then
+        info "Installing Podman via Homebrew..."
+        brew install podman
+        info "Initializing Podman machine..."
+        podman machine init 2>/dev/null || true
+        podman machine start 2>/dev/null || true
+        success "Podman installed"
+    else
+        die "Please install Homebrew first, then run: brew install podman"
+    fi
+}
+
 install_docker_linux() {
     info "Installing Docker on Linux..."
     
@@ -259,55 +322,84 @@ install_docker_macos() {
     fi
 }
 
-check_and_install_docker() {
+check_and_install_engine() {
     if $SKIP_DOCKER_INSTALL; then
-        info "Skipping Docker check (--skip-docker)"
+        info "Skipping container engine check (--skip-docker)"
         return 0
     fi
-    
-    if command_exists docker; then
-        if docker info &>/dev/null; then
-            success "Docker is installed and running"
+
+    # If engine is already set and available, check if it's running
+    if [ -n "$ENGINE" ] && command_exists "$ENGINE"; then
+        if $ENGINE info &>/dev/null; then
+            success "$ENGINE is installed and running"
             return 0
         else
-            warn "Docker is installed but not running"
-            
+            warn "$ENGINE is installed but not running"
+
             case "$OS" in
                 linux)
-                    info "Starting Docker service..."
-                    sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
+                    if [ "$ENGINE" = "docker" ]; then
+                        info "Starting Docker service..."
+                        sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
+                    else
+                        info "Starting Podman service..."
+                        systemctl --user start podman.socket 2>/dev/null || true
+                    fi
                     sleep 2
                     ;;
                 macos)
-                    echo ""
-                    warn "Please start Docker Desktop and run this script again."
-                    echo ""
-                    exit 1
+                    if [ "$ENGINE" = "podman" ]; then
+                        info "Starting Podman machine..."
+                        podman machine start 2>/dev/null || true
+                        sleep 2
+                    else
+                        echo ""
+                        warn "Please start Docker Desktop and run this script again."
+                        echo ""
+                        exit 1
+                    fi
                     ;;
             esac
-            
-            if docker info &>/dev/null; then
-                success "Docker started"
+
+            if $ENGINE info &>/dev/null; then
+                success "$ENGINE started"
                 return 0
             else
-                die "Could not start Docker. Please start it manually and try again."
+                die "Could not start $ENGINE. Please start it manually and try again."
             fi
         fi
     fi
-    
-    # Docker not installed
+
+    # Engine not installed — try to install
     echo ""
-    warn "Docker is not installed."
-    printf "Install Docker now? [Y/n]: "
-    read -r response
-    if [[ ! "$response" =~ ^[Nn]$ ]]; then
-        case "$OS" in
-            linux)  install_docker_linux ;;
-            macos)  install_docker_macos ;;
-            *)      die "Unsupported OS. Please install Docker manually." ;;
-        esac
+    if [ "$ENGINE" = "podman" ]; then
+        warn "Podman is not installed."
+        printf "Install Podman now? [Y/n]: "
+        read -r response
+        if [[ ! "$response" =~ ^[Nn]$ ]]; then
+            case "$OS" in
+                linux)  install_podman_linux ;;
+                macos)  install_podman_macos ;;
+                *)      die "Unsupported OS. Please install Podman manually." ;;
+            esac
+        else
+            die "Podman is required. Please install it and try again."
+        fi
     else
-        die "Docker is required. Please install it and try again."
+        # Default: install docker
+        ENGINE="docker"
+        warn "Docker is not installed."
+        printf "Install Docker now? [Y/n]: "
+        read -r response
+        if [[ ! "$response" =~ ^[Nn]$ ]]; then
+            case "$OS" in
+                linux)  install_docker_linux ;;
+                macos)  install_docker_macos ;;
+                *)      die "Unsupported OS. Please install Docker manually." ;;
+            esac
+        else
+            die "Docker is required. Please install it and try again."
+        fi
     fi
 }
 
@@ -315,40 +407,44 @@ check_and_install_docker() {
 # Pre-flight checks
 # ─────────────────────────────────────────────────────────────────────────────
 NEED_SUDO=false
-check_and_install_docker
+check_and_install_engine
 
-# Check if we need sudo for docker
-if ! docker info &>/dev/null 2>&1; then
-    if sudo docker info &>/dev/null 2>&1; then
+# Check if we need sudo for the engine
+if ! $ENGINE info &>/dev/null 2>&1; then
+    if sudo $ENGINE info &>/dev/null 2>&1; then
         NEED_SUDO=true
-        warn "Docker requires sudo. Consider adding your user to the docker group."
+        if [ "$ENGINE" = "docker" ]; then
+            warn "Docker requires sudo. Consider adding your user to the docker group."
+        else
+            warn "Podman requires sudo. Consider using rootless mode."
+        fi
     else
-        die "Cannot connect to Docker daemon"
+        die "Cannot connect to $ENGINE"
     fi
 fi
 
-docker_cmd() {
+engine_cmd() {
     if $NEED_SUDO; then
-        sudo docker "$@"
+        sudo $ENGINE "$@"
     else
-        docker "$@"
+        $ENGINE "$@"
     fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stop existing containers
 # ─────────────────────────────────────────────────────────────────────────────
-if docker_cmd inspect "$CONTAINER" &>/dev/null; then
+if engine_cmd inspect "$CONTAINER" &>/dev/null; then
     info "Stopping existing Clawforce container..."
-    docker_cmd stop "$CONTAINER" 2>/dev/null || true
-    docker_cmd rm "$CONTAINER" 2>/dev/null || true
+    engine_cmd stop "$CONTAINER" 2>/dev/null || true
+    engine_cmd rm "$CONTAINER" 2>/dev/null || true
 fi
 
 # Stop any orphaned agent workers
-AGENT_CONTAINERS=$(docker_cmd ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
+AGENT_CONTAINERS=$(engine_cmd ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
 if [ -n "$AGENT_CONTAINERS" ]; then
     info "Cleaning up agent workers..."
-    echo "$AGENT_CONTAINERS" | xargs docker_cmd rm -f 2>/dev/null || true
+    echo "$AGENT_CONTAINERS" | xargs engine_cmd rm -f 2>/dev/null || true
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -368,7 +464,7 @@ DATA_DIR="$(cd "$DATA_DIR" && pwd)"
 # Pull image
 # ─────────────────────────────────────────────────────────────────────────────
 info "Pulling Clawforce image: $IMAGE"
-docker_cmd pull "$IMAGE"
+engine_cmd pull "$IMAGE"
 success "Image pulled"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -388,9 +484,21 @@ install_cli_wrapper() {
     tmpfile="$(mktemp)" || { warn "Could not create temp file. Skipping CLI wrapper."; return 1; }
     cat > "$tmpfile" << 'EOF'
 #!/usr/bin/env bash
-# clawforce - Manage the Clawforce Docker container
+# clawforce - Manage the Clawforce container
 
 CONTAINER="${CLAWFORCE_CONTAINER:-clawforce}"
+
+# Container engine: docker (default) or podman
+if [ -n "$CLAWFORCE_ENGINE" ]; then
+    ENGINE="$CLAWFORCE_ENGINE"
+elif command -v docker &>/dev/null; then
+    ENGINE="docker"
+elif command -v podman &>/dev/null; then
+    ENGINE="podman"
+else
+    echo "Error: neither docker nor podman found in PATH"
+    exit 1
+fi
 
 show_help() {
     echo "Usage: clawforce <command>"
@@ -403,6 +511,9 @@ show_help() {
     echo "  update    Pull the latest image and recreate the container"
     echo "  logs      View container logs"
     echo "  status    Check container status"
+    echo ""
+    echo "Environment:"
+    echo "  CLAWFORCE_ENGINE   Container engine to use: docker or podman (default: auto-detect)"
 }
 
 if [ $# -eq 0 ]; then
@@ -413,39 +524,39 @@ fi
 case "$1" in
     start)
         echo "Starting $CONTAINER..."
-        docker start "$CONTAINER"
+        $ENGINE start "$CONTAINER"
         ;;
     stop)
         echo "Stopping $CONTAINER..."
-        docker stop "$CONTAINER"
+        $ENGINE stop "$CONTAINER"
         ;;
     clean)
         echo "Cleaning $CONTAINER..."
-        docker stop "$CONTAINER" 2>/dev/null || true
-        docker rm "$CONTAINER" 2>/dev/null || true
+        $ENGINE stop "$CONTAINER" 2>/dev/null || true
+        $ENGINE rm "$CONTAINER" 2>/dev/null || true
         echo "Cleaned."
         ;;
     restart)
         echo "Restarting $CONTAINER..."
-        docker restart "$CONTAINER"
+        $ENGINE restart "$CONTAINER"
         ;;
     update)
-        if ! docker inspect "$CONTAINER" &>/dev/null; then
+        if ! $ENGINE inspect "$CONTAINER" &>/dev/null; then
             echo "Container '$CONTAINER' not found. Run the installer first."
             exit 1
         fi
-        IMAGE=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER")
+        IMAGE=$($ENGINE inspect --format '{{.Config.Image}}' "$CONTAINER")
         echo "Pulling $IMAGE..."
-        docker pull "$IMAGE"
+        $ENGINE pull "$IMAGE"
         echo "Recreating $CONTAINER..."
         # Capture existing run config before removing
-        PORTS=$(docker inspect --format '{{range $p, $conf := .HostConfig.PortBindings}}{{(index $conf 0).HostPort}}:{{$p}} {{end}}' "$CONTAINER" | tr -d '/')
-        DATA_VOL=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$CONTAINER")
-        ENVS=$(docker inspect --format '{{range .Config.Env}}-e {{.}} {{end}}' "$CONTAINER")
-        HAS_SOCK=$(docker inspect --format '{{range .Mounts}}{{.Source}}{{end}}' "$CONTAINER" | grep -c "docker.sock" || true)
-        docker stop "$CONTAINER" 2>/dev/null || true
-        docker rm "$CONTAINER"
-        RUN_CMD="docker run -d --name $CONTAINER --restart unless-stopped"
+        PORTS=$($ENGINE inspect --format '{{range $p, $conf := .HostConfig.PortBindings}}{{(index $conf 0).HostPort}}:{{$p}} {{end}}' "$CONTAINER" | tr -d '/')
+        DATA_VOL=$($ENGINE inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$CONTAINER")
+        ENVS=$($ENGINE inspect --format '{{range .Config.Env}}-e {{.}} {{end}}' "$CONTAINER")
+        HAS_SOCK=$($ENGINE inspect --format '{{range .Mounts}}{{.Source}}{{end}}' "$CONTAINER" | grep -c "docker.sock\|podman.sock" || true)
+        $ENGINE stop "$CONTAINER" 2>/dev/null || true
+        $ENGINE rm "$CONTAINER"
+        RUN_CMD="$ENGINE run -d --name $CONTAINER --restart unless-stopped"
         for p in $PORTS; do RUN_CMD="$RUN_CMD -p $p"; done
         if [ -n "$DATA_VOL" ]; then RUN_CMD="$RUN_CMD -v $DATA_VOL:/data"; fi
         if [ "$HAS_SOCK" -gt 0 ]; then RUN_CMD="$RUN_CMD -v /var/run/docker.sock:/var/run/docker.sock"; fi
@@ -467,10 +578,10 @@ case "$1" in
         done
         ;;
     logs)
-        docker logs -f "$CONTAINER"
+        $ENGINE logs -f "$CONTAINER"
         ;;
     status)
-        docker ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        $ENGINE ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
         ;;
     *)
         echo "Unknown command: $1"
@@ -518,14 +629,19 @@ RUN_ARGS=(
 )
 
 if $PROCESS_RUNTIME; then
-    info "Using process runtime (no Docker isolation for agents)"
+    info "Using process runtime (no container isolation for agents)"
     RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=process")
 else
-    info "Using Docker isolation for agents"
-    RUN_ARGS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
+    info "Using container isolation for agents"
+    if [ "$ENGINE" = "podman" ]; then
+        SOCK_PATH="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+        RUN_ARGS+=(-v "$SOCK_PATH:/var/run/docker.sock")
+    else
+        RUN_ARGS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
+    fi
 fi
 
-docker_cmd run "${RUN_ARGS[@]}" "$IMAGE"
+engine_cmd run "${RUN_ARGS[@]}" "$IMAGE"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Health check
@@ -538,7 +654,7 @@ for i in $(seq 1 30); do
     if [ "$i" -eq 30 ]; then
         warn "Server not responding after 30s"
         echo ""
-        echo "Check logs with: docker logs $CONTAINER"
+        echo "Check logs with: $ENGINE logs $CONTAINER"
         exit 1
     fi
     sleep 1

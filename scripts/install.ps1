@@ -46,6 +46,8 @@ param(
     [string]$AdminPass = "admin",
     [string]$Image = "ghcr.io/saolalab/clawforce:latest",
     [string]$Container = "clawforce",
+    [ValidateSet("docker", "podman", "")]
+    [string]$Engine = "",
     [switch]$ProcessPool,
     [switch]$SkipDockerInstall,
     [switch]$Uninstall
@@ -63,9 +65,24 @@ function Write-Err { param($msg) Write-Host "✗ " -ForegroundColor Red -NoNewli
 
 function Test-Command { param($cmd) return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
-function Test-DockerRunning {
+# Auto-detect container engine
+if (-not $Engine) {
+    if ($env:CLAWFORCE_ENGINE) {
+        $Engine = $env:CLAWFORCE_ENGINE
+    } elseif (Test-Command "docker") {
+        $Engine = "docker"
+    } elseif (Test-Command "podman") {
+        $Engine = "podman"
+    }
+}
+
+function Invoke-Engine {
+    & $Engine @args
+}
+
+function Test-EngineRunning {
     try {
-        $null = docker info 2>&1
+        $null = & $Engine info 2>&1
         return $LASTEXITCODE -eq 0
     } catch {
         return $false
@@ -88,15 +105,19 @@ function Get-DockerDesktopPath {
 # Uninstall
 # ─────────────────────────────────────────────────────────────────────────────
 if ($Uninstall) {
+    if (-not $Engine) {
+        Write-Err "Neither docker nor podman found. Nothing to uninstall."
+        exit 1
+    }
     Write-Info "Uninstalling Clawforce..."
-    
+
     # Stop and remove container
     try {
-        $containerExists = docker inspect $Container 2>&1
+        $containerExists = & $Engine inspect $Container 2>&1
         if ($LASTEXITCODE -eq 0) {
             Write-Info "Stopping container..."
-            docker stop $Container 2>&1 | Out-Null
-            docker rm $Container 2>&1 | Out-Null
+            & $Engine stop $Container 2>&1 | Out-Null
+            & $Engine rm $Container 2>&1 | Out-Null
             Write-Success "Container removed"
         } else {
             Write-Info "Container not found"
@@ -104,13 +125,13 @@ if ($Uninstall) {
     } catch {
         Write-Info "Container not found"
     }
-    
+
     # Stop agent workers
     try {
-        $agentContainers = docker ps -aq --filter "name=clawbot-agent-" 2>&1
+        $agentContainers = & $Engine ps -aq --filter "name=clawbot-agent-" 2>&1
         if ($agentContainers) {
             Write-Info "Stopping agent workers..."
-            $agentContainers | ForEach-Object { docker rm -f $_ 2>&1 | Out-Null }
+            $agentContainers | ForEach-Object { & $Engine rm -f $_ 2>&1 | Out-Null }
             Write-Success "Agent workers removed"
         }
     } catch {}
@@ -160,56 +181,69 @@ if ($winVersion.Major -lt 10) {
 # Check/Install Docker
 # ─────────────────────────────────────────────────────────────────────────────
 if (-not $SkipDockerInstall) {
-    if (Test-Command "docker") {
-        if (Test-DockerRunning) {
-            Write-Success "Docker is installed and running"
+    if ($Engine -and (Test-Command $Engine)) {
+        if (Test-EngineRunning) {
+            Write-Success "$Engine is installed and running"
         } else {
-            Write-Warn "Docker is installed but not running"
-            
-            $dockerPath = Get-DockerDesktopPath
-            if ($dockerPath) {
-                Write-Info "Starting Docker Desktop..."
-                Start-Process $dockerPath
-                Write-Host ""
-                Write-Warn "Please wait for Docker Desktop to start (look for the whale icon in the system tray)"
-                Write-Host ""
-                
-                # Wait for Docker to be ready
-                $maxWait = 120
-                $waited = 0
-                while (-not (Test-DockerRunning) -and $waited -lt $maxWait) {
-                    Write-Host "." -NoNewline
-                    Start-Sleep -Seconds 2
-                    $waited += 2
-                }
-                Write-Host ""
-                
-                if (Test-DockerRunning) {
-                    Write-Success "Docker is now running"
+            Write-Warn "$Engine is installed but not running"
+
+            if ($Engine -eq "docker") {
+                $dockerPath = Get-DockerDesktopPath
+                if ($dockerPath) {
+                    Write-Info "Starting Docker Desktop..."
+                    Start-Process $dockerPath
+                    Write-Host ""
+                    Write-Warn "Please wait for Docker Desktop to start (look for the whale icon in the system tray)"
+                    Write-Host ""
+
+                    $maxWait = 120
+                    $waited = 0
+                    while (-not (Test-EngineRunning) -and $waited -lt $maxWait) {
+                        Write-Host "." -NoNewline
+                        Start-Sleep -Seconds 2
+                        $waited += 2
+                    }
+                    Write-Host ""
+
+                    if (Test-EngineRunning) {
+                        Write-Success "$Engine is now running"
+                    } else {
+                        Write-Err "$Engine failed to start within $maxWait seconds"
+                        Write-Host ""
+                        Write-Host "  Please start Docker Desktop manually and run this script again."
+                        exit 1
+                    }
                 } else {
-                    Write-Err "Docker failed to start within $maxWait seconds"
+                    Write-Err "Cannot find Docker Desktop executable"
                     Write-Host ""
                     Write-Host "  Please start Docker Desktop manually and run this script again."
                     exit 1
                 }
             } else {
-                Write-Err "Cannot find Docker Desktop executable"
-                Write-Host ""
-                Write-Host "  Please start Docker Desktop manually and run this script again."
-                exit 1
+                # Podman - try starting the machine
+                Write-Info "Starting Podman machine..."
+                & podman machine start 2>&1 | Out-Null
+                Start-Sleep -Seconds 3
+                if (Test-EngineRunning) {
+                    Write-Success "Podman is now running"
+                } else {
+                    Write-Err "Could not start Podman. Please start it manually and try again."
+                    exit 1
+                }
             }
         }
-    } else {
+    } elseif (-not $Engine -or $Engine -eq "docker") {
+        # Default path: try to install docker
+        if (-not $Engine) { $Engine = "docker" }
         Write-Warn "Docker is not installed"
         Write-Host ""
-        
-        # Check for winget
+
         if (Test-Command "winget") {
             $response = Read-Host "Install Docker Desktop via winget? [Y/n]"
             if ($response -notmatch "^[Nn]$") {
                 Write-Info "Installing Docker Desktop..."
                 winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements
-                
+
                 Write-Host ""
                 Write-Success "Docker Desktop installed"
                 Write-Warn "Please restart your computer, then run this script again."
@@ -222,19 +256,34 @@ if (-not $SkipDockerInstall) {
                 exit 0
             }
         }
-        
-        # Manual installation instructions
+
         Write-Host ""
         Write-Err "Docker Desktop is required."
         Write-Host ""
         Write-Host "  Please install Docker Desktop from:"
         Write-Host "  https://docs.docker.com/desktop/install/windows-install/"
         Write-Host ""
-        Write-Host "  After installation:"
-        Write-Host "  1. Restart your computer"
-        Write-Host "  2. Open Docker Desktop"
-        Write-Host "  3. Run this installer again"
+        Write-Host "  Or install Podman instead:"
+        Write-Host "  winget install RedHat.Podman"
+        Write-Host "  Then re-run with: .\install.ps1 -Engine podman"
         Write-Host ""
+        exit 1
+    } else {
+        # Podman requested but not installed
+        Write-Warn "Podman is not installed"
+        Write-Host ""
+        if (Test-Command "winget") {
+            $response = Read-Host "Install Podman via winget? [Y/n]"
+            if ($response -notmatch "^[Nn]$") {
+                Write-Info "Installing Podman..."
+                winget install -e --id RedHat.Podman --accept-source-agreements --accept-package-agreements
+                Write-Host ""
+                Write-Success "Podman installed. Please initialize with: podman machine init && podman machine start"
+                Write-Host "  Then run this installer again."
+                exit 0
+            }
+        }
+        Write-Err "Podman is required. Install with: winget install RedHat.Podman"
         exit 1
     }
 }
@@ -242,9 +291,9 @@ if (-not $SkipDockerInstall) {
 # ─────────────────────────────────────────────────────────────────────────────
 # Check WSL2 for Docker socket mounting
 # ─────────────────────────────────────────────────────────────────────────────
-if (-not $ProcessPool) {
+if (-not $ProcessPool -and $Engine -eq "docker") {
     # Check if Docker is using WSL2 backend
-    $dockerInfo = docker info --format '{{.OSType}}' 2>&1
+    $dockerInfo = & $Engine info --format '{{.OSType}}' 2>&1
     if ($dockerInfo -eq "linux") {
         Write-Info "Docker is using Linux containers (WSL2)"
     } else {
@@ -256,20 +305,20 @@ if (-not $ProcessPool) {
 # Stop existing containers
 # ─────────────────────────────────────────────────────────────────────────────
 try {
-    $containerExists = docker inspect $Container 2>&1
+    $containerExists = & $Engine inspect $Container 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Info "Stopping existing Clawforce container..."
-        docker stop $Container 2>&1 | Out-Null
-        docker rm $Container 2>&1 | Out-Null
+        & $Engine stop $Container 2>&1 | Out-Null
+        & $Engine rm $Container 2>&1 | Out-Null
     }
 } catch {}
 
 # Stop orphaned agent workers
 try {
-    $agentContainers = docker ps -aq --filter "name=clawbot-agent-" 2>&1
+    $agentContainers = & $Engine ps -aq --filter "name=clawbot-agent-" 2>&1
     if ($agentContainers -and $LASTEXITCODE -eq 0) {
         Write-Info "Cleaning up agent workers..."
-        $agentContainers | ForEach-Object { docker rm -f $_ 2>&1 | Out-Null }
+        $agentContainers | ForEach-Object { & $Engine rm -f $_ 2>&1 | Out-Null }
     }
 } catch {}
 
@@ -312,9 +361,9 @@ if ($imageRegistry -match '\.') {
         Write-Host ""
         $loginResponse = Read-Host "Log in to $imageRegistry now? [Y/n]"
         if ($loginResponse -notmatch "^[Nn]$") {
-            docker login $imageRegistry
+            & $Engine login $imageRegistry
             if ($LASTEXITCODE -ne 0) {
-                Write-Err "Login to $imageRegistry failed. Re-run after authenticating with: docker login $imageRegistry"
+                Write-Err "Login to $imageRegistry failed. Re-run after authenticating with: $Engine login $imageRegistry"
                 exit 1
             }
             Write-Success "Logged in to $imageRegistry"
@@ -328,7 +377,7 @@ if ($imageRegistry -match '\.') {
 # Pull image
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Info "Pulling Clawforce image: $Image"
-docker pull $Image
+& $Engine pull $Image
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Failed to pull image"
     exit 1
@@ -352,18 +401,22 @@ $runArgs = @(
 )
 
 if ($ProcessPool) {
-    Write-Info "Using process pool (no Docker isolation for agents)"
+    Write-Info "Using process pool (no container isolation for agents)"
     $runArgs += @("-e", "ADMIN_RUNTIME_BACKEND=process")
 } else {
-    Write-Info "Using Docker isolation for agents"
-    # On Windows with Docker Desktop, use named pipe for Docker socket
-    $runArgs += @("-v", "//var/run/docker.sock:/var/run/docker.sock")
+    Write-Info "Using container isolation for agents"
+    if ($Engine -eq "podman") {
+        # Podman on Windows uses a different socket path
+        $runArgs += @("-v", "//var/run/podman/podman.sock:/var/run/docker.sock")
+    } else {
+        $runArgs += @("-v", "//var/run/docker.sock:/var/run/docker.sock")
+    }
     $runArgs += @("-e", "AGENT_STORAGE_HOST_PATH=$DockerDataPath")
 }
 
 $runArgs += $Image
 
-& docker @runArgs
+& $Engine @runArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Failed to start container"
     exit 1
@@ -385,7 +438,7 @@ for ($i = 1; $i -le $maxAttempts; $i++) {
     if ($i -eq $maxAttempts) {
         Write-Warn "Server not responding after 30s"
         Write-Host ""
-        Write-Host "  Check logs with: docker logs $Container"
+        Write-Host "  Check logs with: $Engine logs $Container"
         exit 1
     }
     Start-Sleep -Seconds 1
@@ -408,9 +461,9 @@ Write-Host "  │                                                               
 Write-Host "  └─────────────────────────────────────────────────────────────────┘" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Commands:"
-Write-Host "    View logs:      docker logs -f $Container"
-Write-Host "    Stop:           docker stop $Container"
-Write-Host "    Start:          docker start $Container"
+Write-Host "    View logs:      $Engine logs -f $Container"
+Write-Host "    Stop:           $Engine stop $Container"
+Write-Host "    Start:          $Engine start $Container"
 Write-Host "    Uninstall:      .\install.ps1 -Uninstall"
 Write-Host ""
 Write-Host "  Documentation:    https://github.com/saolalab/clawforce"
