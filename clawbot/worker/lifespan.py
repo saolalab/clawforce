@@ -131,7 +131,8 @@ async def _deferred_software_reinstall(software_management) -> None:
     """Run software reinstall in background after WebSocket connects.
 
     Waits SOFTWARE_REINSTALL_DELAY_S to let the connection establish first.
-    Software reinstall can take minutes for npm/pip packages.
+    Starts post-install daemons (e.g. whatsapp-bridge) then reinstalls missing
+    packages. Software reinstall can take minutes for npm/pip packages.
 
     Sets global _software_installing flag so health endpoint reports status.
     """
@@ -142,6 +143,11 @@ async def _deferred_software_reinstall(software_management) -> None:
         logger.info("Starting background software reinstall...")
         await software_management.reinstall_missing()
         logger.info("Background software reinstall completed")
+        # Start daemons after reinstall so binaries are guaranteed to exist
+        try:
+            await software_management.start_post_install_daemons()
+        except Exception as e:
+            logger.warning("Post-install daemons failed to start: {}", e)
     except asyncio.CancelledError:
         logger.debug("Software reinstall task cancelled during shutdown")
     except Exception as e:

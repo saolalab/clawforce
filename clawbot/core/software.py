@@ -356,6 +356,27 @@ class SoftwareManagement:
         except Exception as e:
             logger.warning(f"Failed to save software catalog: {e}")
 
+    async def start_post_install_daemons(self) -> None:
+        """Start post_install daemons for all installed software that has daemon: true.
+
+        Called on worker startup (after reinstall_missing) so daemons like
+        clawbot-whatsapp-bridge are restarted after container/process restart.
+        Assumes the catalog is already loaded; does not reload.
+        """
+        if not self._catalog:
+            return
+        for key, entry in self._catalog.items():
+            post_install = _get_entry_attr(entry, "post_install") or {}
+            if not isinstance(post_install, dict):
+                continue
+            if not post_install.get("daemon"):
+                continue
+            install_type = _get_entry_attr(entry, "installed_via", "") or "npm"
+            try:
+                await _run_post_install(post_install, install_type)
+            except Exception as e:
+                logger.warning(f"Failed to start post-install daemon for '{key}': {e}")
+
     async def install(
         self,
         *,

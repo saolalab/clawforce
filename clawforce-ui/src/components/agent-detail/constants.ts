@@ -1,7 +1,7 @@
 import React from "react";
 import { SiTelegram, SiDiscord, SiWhatsapp, SiSlack } from "react-icons/si";
 import { MdEmail } from "react-icons/md";
-import { FeishuIcon, TeamsIcon } from "./ui/Icons";
+import { FeishuIcon, TeamsIcon, ZaloIcon } from "./ui/Icons";
 import type { ActivityFilter, FieldDef, ProviderDef } from "./types";
 
 export const css = {
@@ -67,26 +67,15 @@ export const CHANNEL_DEFS: { key: string; label: string; icon: React.ReactNode; 
       { name: "reply_in_thread", label: "Reply in Thread", type: "toggle" },
     ],
   },
-  // Zalo (OA + Personal) — disabled for now, enable later
-  // {
-  //   key: "zalo",
-  //   label: "Zalo (Official Account)",
-  //   icon: React.createElement(SiZalo, { size: 20, style: { color: "#0068FF" } }),
-  //   fields: [
-  //     { name: "enabled", label: "Enable Zalo OA", type: "toggle" },
-  //     { name: "bot_token", label: "Bot Token", type: "password", placeholder: "From Zalo Bot Platform (12345689:abc-xyz)" },
-  //     { name: "allow_from", label: "Allowed Users", type: "tags", placeholder: "user_id1, user_id2" },
-  //   ],
-  // },
-  // {
-  //   key: "zalouser",
-  //   label: "Zalo Personal",
-  //   icon: React.createElement(SiZalo, { size: 20, style: { color: "#0068FF" } }),
-  //   fields: [
-  //     { name: "enabled", label: "Enable Zalo Personal", type: "toggle" },
-  //     { name: "allow_from", label: "Allowed Users", type: "tags", placeholder: "user_id1, user_id2" },
-  //   ],
-  // },
+  {
+    key: "zalouser",
+    label: "Zalo Personal",
+    icon: React.createElement(ZaloIcon, { size: 20 }),
+    fields: [
+      { name: "enabled", label: "Enable Zalo Personal", type: "toggle" },
+      { name: "allow_from", label: "Allowed Users", type: "tags", placeholder: "user_id1, user_id2" },
+    ],
+  },
   {
     key: "teams",
     label: "Microsoft Teams",
