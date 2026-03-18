@@ -14,35 +14,18 @@ function isSecretField(f: FieldDef): boolean {
   return f.type === "password" && SECRET_FIELD_NAMES.has(f.name);
 }
 
-function LinkWhatsAppInstruction() {
+function LinkBridgeInstruction({ command, app }: { command: string; app: string }) {
   return (
     <div className="rounded-lg border border-claude-border bg-claude-surface/50 px-3 py-2.5 text-sm">
-      <p className="font-medium text-claude-text-primary mb-1">Link your WhatsApp account</p>
+      <p className="font-medium text-claude-text-primary mb-1">Link your {app} account</p>
       <p className="text-claude-text-muted mb-2">
         Open the terminal in the <strong>Workspace</strong> tab and run:
       </p>
       <code className="block rounded bg-claude-input px-2 py-1.5 font-mono text-xs text-claude-text-secondary">
-        clawbot-whatsapp-bridge
+        {command}
       </code>
       <p className="text-claude-text-muted mt-2 text-xs">
-        Scan the QR code with WhatsApp (Linked Devices). The session is saved automatically. The bridge will reconnect on next start.
-      </p>
-    </div>
-  );
-}
-
-function LinkZaloInstruction() {
-  return (
-    <div className="rounded-lg border border-claude-border bg-claude-surface/50 px-3 py-2.5 text-sm">
-      <p className="font-medium text-claude-text-primary mb-1">Link your Zalo account</p>
-      <p className="text-claude-text-muted mb-2">
-        Open the terminal in the <strong>Workspace</strong> tab and run:
-      </p>
-      <code className="block rounded bg-claude-input px-2 py-1.5 font-mono text-xs text-claude-text-secondary">
-        clawbot-zalo-personal-bridge
-      </code>
-      <p className="text-claude-text-muted mt-2 text-xs">
-        Scan the QR code with Zalo. The session is saved automatically.
+        Scan the QR code with {app} (Linked Devices). The session is saved automatically. The bridge will reconnect on next start.
       </p>
     </div>
   );
@@ -204,12 +187,12 @@ export function ChannelsTab({
                 })}
                 {isZalo && zaloBridgeInstalled && (
                   <div className="pt-2">
-                    <LinkZaloInstruction />
+                    <LinkBridgeInstruction command="clawbot-zalo-personal-bridge" app="Zalo" />
                   </div>
                 )}
                 {isWhatsApp && whatsappBridgeInstalled && (
                   <div className="pt-2">
-                    <LinkWhatsAppInstruction />
+                    <LinkBridgeInstruction command="clawbot-whatsapp-bridge" app="WhatsApp" />
                   </div>
                 )}
               </div>
