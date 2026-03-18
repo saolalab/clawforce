@@ -99,7 +99,7 @@ Isolation at every layer:
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Each agent worker runs in a **fully isolated Docker container** with its own filesystem, network stack, and resource limits. The control plane multiplexes all communication through a single WebSocket hub — no HTTP ports exposed per agent.
+Each agent worker runs in a **fully isolated container** (Docker or Podman) with its own filesystem, network stack, and resource limits. The control plane multiplexes all communication through a single WebSocket hub — no HTTP ports exposed per agent.
 
 ### Agent Lifecycle
 
@@ -116,16 +116,25 @@ Each agent worker runs in a **fully isolated Docker container** with its own fil
 
 ### One-Line Install (Recommended)
 
-The fastest way to get started — installs Docker (if needed) and runs Clawforce:
+The fastest way to get started — installs Docker (if needed) and runs Clawforce.
+Works with both **Docker** (default) and **Podman**.
 
 **macOS / Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash
 ```
 
+**With Podman:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --engine podman
+```
+
 **Windows (PowerShell as Administrator):**
 ```powershell
 irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 | iex
+
+# Or with Podman:
+.\install.ps1 -Engine podman
 ```
 
 After installation, open **http://localhost:8080** and log in with `admin`/`admin`.
@@ -142,20 +151,33 @@ After installation, open **http://localhost:8080** and log in with `admin`/`admi
 # Custom port and admin password
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --port 9000 --admin-pass mypassword
 
-# Use process runtime instead of Docker isolation
+# Use Podman instead of Docker
+curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --engine podman
+
+# Use process runtime instead of container isolation
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --process-runtime
 
 # Uninstall
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --uninstall
 ```
 
-### Run by Docker command
+### Run with Docker or Podman
 
-Maximum security — each agent runs in its own isolated Docker container:
+Maximum security — each agent runs in its own isolated container:
 
+**Docker:**
 ```bash
 docker run -d -p 8080:8080 \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v $HOME/.clawforce-data:/data \
+  -e AGENT_STORAGE_HOST_PATH=$HOME/.clawforce-data \
+  ghcr.io/saolalab/clawforce:latest
+```
+
+**Podman:**
+```bash
+podman run -d -p 8080:8080 \
+  -v $XDG_RUNTIME_DIR/podman/podman.sock:/var/run/docker.sock \
   -v $HOME/.clawforce-data:/data \
   -e AGENT_STORAGE_HOST_PATH=$HOME/.clawforce-data \
   ghcr.io/saolalab/clawforce:latest
@@ -178,7 +200,7 @@ clawforce serve
 | **Agent Management** | Create, configure, start/stop, monitor, and scale agents from dashboard |
 | **Marketplace** | Pre-built agent templates for common workflows — deploy in 1 click |
 | **Team Coordination** | A2A discovery, direct messaging, shared Kanban plans, task delegation |
-| **Security** | Docker isolation, vault secrets, network controls, shell policies, RBAC |
+| **Security** | Container isolation (Docker/Podman), vault secrets, network controls, shell policies, RBAC |
 | **Tools** | Shell, filesystem, web search, MCP servers, custom integrations |
 | **Channels** | Slack, Discord, Telegram, WhatsApp, Email, Feishu |
 | **Scheduling** | Cron-based triggers, event-driven execution, persistent background work |
@@ -208,7 +230,7 @@ make backend   # Terminal 1: API at http://localhost:8080
 make frontend  # Terminal 2: Vite at http://localhost:5173
 ```
 
-Build from source:
+Build from source (works with `docker` or `podman`):
 ```bash
 docker build -t clawforce:latest -f deploy/Dockerfile .
 docker run -d -p 8080:8080 \
@@ -217,6 +239,13 @@ docker run -d -p 8080:8080 \
   -e AGENT_STORAGE_HOST_PATH=$HOME/.clawforce-data \
   -e AGENT_IMAGE=clawforce:latest \
   clawforce:latest
+```
+
+Or using the Makefile (auto-detects engine, override with `ENGINE=podman`):
+```bash
+make container             # build + run
+make container-logs        # tail logs
+ENGINE=podman make container  # use podman
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
