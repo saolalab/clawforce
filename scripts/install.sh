@@ -634,8 +634,28 @@ if $PROCESS_RUNTIME; then
 else
     info "Using container isolation for agents"
     if [ "$ENGINE" = "podman" ]; then
-        SOCK_PATH="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+        # Detect podman socket path to mount into the admin container.
+        # macOS: containers run inside a Linux VM — use the in-VM socket path.
+        # Linux: the socket is directly on the host filesystem.
+        if [ "$(uname -s)" = "Darwin" ]; then
+            PODMAN_ROOTFUL=$(podman machine inspect --format '{{.Rootful}}' 2>/dev/null || echo "true")
+            if [ "$PODMAN_ROOTFUL" = "true" ]; then
+                SOCK_PATH="/run/podman/podman.sock"
+            else
+                SOCK_PATH="/run/user/1000/podman/podman.sock"
+            fi
+            info "Using podman in-VM socket: $SOCK_PATH"
+        else
+            SOCK_PATH="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+            if [ ! -S "$SOCK_PATH" ]; then
+                warn "Podman socket not found at $SOCK_PATH"
+                warn "Ensure podman is running: systemctl --user enable --now podman.socket"
+                exit 1
+            fi
+            info "Using podman socket: $SOCK_PATH"
+        fi
         RUN_ARGS+=(-v "$SOCK_PATH:/var/run/docker.sock")
+        RUN_ARGS+=(--security-opt label=disable)
     else
         RUN_ARGS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
     fi

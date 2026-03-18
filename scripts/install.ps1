@@ -407,7 +407,8 @@ if ($ProcessPool) {
     Write-Info "Using container isolation for agents"
     if ($Engine -eq "podman") {
         # Podman on Windows uses a different socket path
-        $runArgs += @("-v", "//var/run/podman/podman.sock:/var/run/docker.sock")
+        $runArgs += @("-v", "//var/run/podman/podman.sock:/var/run/docker.sock:z")
+        $runArgs += @("--security-opt", "label=disable")
     } else {
         $runArgs += @("-v", "//var/run/docker.sock:/var/run/docker.sock")
     }
