@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 
-# clawforce - A simple wrapper to control the Clawforce Docker container
+# clawforce - A simple wrapper to control the Clawforce container
 #
-# Installation: 
+# Installation:
 # sudo ln -s $(pwd)/clawforce /usr/local/bin/clawforce
 # or
 # sudo cp clawforce /usr/local/sbin/clawforce
 
 CONTAINER="${CLAWFORCE_CONTAINER:-clawforce}"
+
+# Container engine: docker (default) or podman
+if [ -n "$CLAWFORCE_ENGINE" ]; then
+    ENGINE="$CLAWFORCE_ENGINE"
+elif command -v docker &>/dev/null; then
+    ENGINE="docker"
+elif command -v podman &>/dev/null; then
+    ENGINE="podman"
+else
+    echo "Error: neither docker nor podman found in PATH"
+    exit 1
+fi
 
 show_help() {
     echo "Usage: clawforce <command>"
@@ -19,6 +31,9 @@ show_help() {
     echo "  restart   Restart the Clawforce container"
     echo "  logs      View container logs"
     echo "  status    Check container status"
+    echo ""
+    echo "Environment:"
+    echo "  CLAWFORCE_ENGINE   Container engine to use: docker or podman (default: auto-detect)"
 }
 
 if [ $# -eq 0 ]; then
@@ -29,27 +44,27 @@ fi
 case "$1" in
     start)
         echo "Starting $CONTAINER..."
-        docker start "$CONTAINER"
+        $ENGINE start "$CONTAINER"
         ;;
     stop)
         echo "Stopping $CONTAINER..."
-        docker stop "$CONTAINER"
+        $ENGINE stop "$CONTAINER"
         ;;
     clean)
         echo "Cleaning $CONTAINER..."
-        docker stop "$CONTAINER" 2>/dev/null || true
-        docker rm "$CONTAINER" 2>/dev/null || true
+        $ENGINE stop "$CONTAINER" 2>/dev/null || true
+        $ENGINE rm "$CONTAINER" 2>/dev/null || true
         echo "Cleaned."
         ;;
     restart)
         echo "Restarting $CONTAINER..."
-        docker restart "$CONTAINER"
+        $ENGINE restart "$CONTAINER"
         ;;
     logs)
-        docker logs -f "$CONTAINER"
+        $ENGINE logs -f "$CONTAINER"
         ;;
     status)
-        docker ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        $ENGINE ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
         ;;
     *)
         echo "Unknown command: $1"

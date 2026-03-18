@@ -21,6 +21,18 @@ ADMIN_PASS="${ADMIN_SETUP_PASSWORD:-admin}"
 # Override via env for production; this default is fine for local dev.
 JWT_SECRET="${ADMIN_JWT_SECRET:-clawforce-local-dev-secret-do-not-use-in-prod}"
 
+# ── Container engine: docker (default) or podman ────────────────────────────
+if [ -n "$CLAWFORCE_ENGINE" ]; then
+    ENGINE="$CLAWFORCE_ENGINE"
+elif command -v docker &>/dev/null; then
+    ENGINE="docker"
+elif command -v podman &>/dev/null; then
+    ENGINE="podman"
+else
+    echo "Error: neither docker nor podman found in PATH"
+    exit 1
+fi
+
 # ── Flags ────────────────────────────────────────────────────────────────────
 DO_BUILD=true
 DO_CLEAN_DATA=false
@@ -39,10 +51,11 @@ for arg in "$@"; do
       echo "  --logs       Tail container logs after starting"
       echo ""
       echo "Environment overrides:"
-      echo "  IMAGE=...              Docker image name  (default: clawforce:latest)"
-      echo "  PORT=...               Host port          (default: 8080)"
-      echo "  ADMIN_JWT_SECRET=...   JWT signing secret (stable default for local dev)"
-      echo "  PROCESS_POOL=true      Use process pool instead of Docker (no socket needed)"
+      echo "  IMAGE=...              Container image name  (default: clawforce:latest)"
+      echo "  PORT=...               Host port             (default: 8080)"
+      echo "  ADMIN_JWT_SECRET=...   JWT signing secret    (stable default for local dev)"
+      echo "  PROCESS_POOL=true      Use process pool instead of container isolation"
+      echo "  CLAWFORCE_ENGINE=...   Container engine: docker or podman (default: auto-detect)"
       exit 0
       ;;
   esac
@@ -58,25 +71,25 @@ warn()  { printf "\033[1;33m⚠ %s\033[0m\n" "$*"; }
 
 stop_container() {
   local name="$1"
-  if docker inspect "$name" &>/dev/null; then
+  if $ENGINE inspect "$name" &>/dev/null; then
     info "Stopping $name ..."
-    docker stop "$name" 2>/dev/null || true
-    docker rm -f "$name" 2>/dev/null || true
+    $ENGINE stop "$name" 2>/dev/null || true
+    $ENGINE rm -f "$name" 2>/dev/null || true
     ok "Removed $name"
   fi
 }
 
-# ── Pre-flight: Docker daemon ────────────────────────────────────────────────
-if ! docker info &>/dev/null; then
-  warn "Docker daemon is not running. Please start Docker Desktop and retry."
+# ── Pre-flight: container engine ─────────────────────────────────────────────
+if ! $ENGINE info &>/dev/null; then
+  warn "$ENGINE is not running. Please start it and retry."
   exit 1
 fi
 
 # ── Stop agent worker containers (clawbot-agent-*) ──────────────────────────
-AGENT_CONTAINERS=$(docker ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
+AGENT_CONTAINERS=$($ENGINE ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
 if [ -n "$AGENT_CONTAINERS" ]; then
   info "Stopping orphaned agent worker containers ..."
-  echo "$AGENT_CONTAINERS" | xargs docker rm -f 2>/dev/null || true
+  echo "$AGENT_CONTAINERS" | xargs $ENGINE rm -f 2>/dev/null || true
   ok "Agent workers cleaned up"
 fi
 
@@ -84,10 +97,10 @@ fi
 stop_container "$CONTAINER"
 
 # Also kill any container using our port (unnamed runs from earlier)
-PORT_CONTAINER=$(docker ps -q --filter "publish=$PORT" 2>/dev/null || true)
+PORT_CONTAINER=$($ENGINE ps -q --filter "publish=$PORT" 2>/dev/null || true)
 if [ -n "$PORT_CONTAINER" ]; then
   info "Stopping container(s) on port $PORT ..."
-  echo "$PORT_CONTAINER" | xargs docker rm -f 2>/dev/null || true
+  echo "$PORT_CONTAINER" | xargs $ENGINE rm -f 2>/dev/null || true
 fi
 
 # ── Resolve DATA_DIR to absolute path ────────────────────────────────────────
@@ -104,7 +117,7 @@ fi
 # ── Build ────────────────────────────────────────────────────────────────────
 if $DO_BUILD; then
   info "Building $IMAGE ..."
-  docker build -t "$IMAGE" -f "$PROJECT_ROOT/deploy/Dockerfile" "$PROJECT_ROOT"
+  $ENGINE build -t "$IMAGE" -f "$PROJECT_ROOT/deploy/Dockerfile" "$PROJECT_ROOT"
   ok "Image built: $IMAGE"
 else
   info "Skipping build (--no-build)"
@@ -123,19 +136,51 @@ RUN_ARGS=(
   -e AGENT_STORAGE_HOST_PATH="$DATA_DIR"
   -v "$DATA_DIR":/data
   --name "$CONTAINER"
-  --add-host host.docker.internal:host-gateway
 )
 
-if [ "${PROCESS_POOL:-false}" = "true" ]; then
-    info "Using process pool (no Docker isolation for agents)"
-    RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=process")
-else
-    info "Using Docker pool (one container per agent)"
-    RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=docker")
-    RUN_ARGS+=(-v "/var/run/docker.sock:/var/run/docker.sock") # this is mount to admin, not agents (agents will use the socket in their own container)
+# Docker needs explicit host mapping; podman resolves host.docker.internal natively
+if [ "$ENGINE" = "docker" ]; then
+  RUN_ARGS+=(--add-host host.docker.internal:host-gateway)
 fi
 
-docker run "${RUN_ARGS[@]}" "$IMAGE"
+if [ "${PROCESS_POOL:-false}" = "true" ]; then
+    info "Using process pool (no container isolation for agents)"
+    RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=process")
+else
+    info "Using container pool (one container per agent)"
+    RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=docker")
+    if [ "$ENGINE" = "podman" ]; then
+        # Detect podman socket path to mount into the admin container.
+        # macOS: containers run inside a Linux VM. The host-side socket
+        #   (e.g. /var/folders/.../podman-machine-default-api.sock) is NOT
+        #   visible inside the VM. We must use the in-VM path instead.
+        # Linux: the socket is directly on the host filesystem.
+        if [ "$(uname -s)" = "Darwin" ]; then
+            # Rootful VM: /run/podman/podman.sock   Rootless VM: /run/user/1000/podman/podman.sock
+            PODMAN_ROOTFUL=$(podman machine inspect --format '{{.Rootful}}' 2>/dev/null || echo "true")
+            if [ "$PODMAN_ROOTFUL" = "true" ]; then
+                SOCK_PATH="/run/podman/podman.sock"
+            else
+                SOCK_PATH="/run/user/1000/podman/podman.sock"
+            fi
+            info "Using podman in-VM socket: $SOCK_PATH"
+        else
+            SOCK_PATH="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+            if [ ! -S "$SOCK_PATH" ]; then
+                warn "Podman socket not found at $SOCK_PATH"
+                warn "Ensure podman is running: systemctl --user enable --now podman.socket"
+                exit 1
+            fi
+            info "Using podman socket: $SOCK_PATH"
+        fi
+        RUN_ARGS+=(-v "$SOCK_PATH:/var/run/docker.sock")
+        RUN_ARGS+=(--security-opt label=disable)
+    else
+        RUN_ARGS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
+    fi
+fi
+
+$ENGINE run "${RUN_ARGS[@]}" "$IMAGE"
 
 # ── Health check ─────────────────────────────────────────────────────────────
 info "Waiting for server to be ready ..."
@@ -145,7 +190,7 @@ for i in $(seq 1 15); do
     break
   fi
   if [ "$i" -eq 15 ]; then
-    warn "Server not responding after 15s — check logs: docker logs $CONTAINER"
+    warn "Server not responding after 15s — check logs: $ENGINE logs $CONTAINER"
   fi
   sleep 1
 done
@@ -154,5 +199,5 @@ done
 if $DO_LOGS; then
   echo ""
   info "Tailing logs (Ctrl+C to stop) ..."
-  docker logs -f "$CONTAINER"
+  $ENGINE logs -f "$CONTAINER"
 fi

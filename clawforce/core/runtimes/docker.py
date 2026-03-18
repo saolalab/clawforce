@@ -48,6 +48,34 @@ AGENT_DOCKER_MEM_LIMIT = os.environ.get("AGENT_DOCKER_MEM_LIMIT", "2g")
 AGENT_DOCKER_CPU_QUOTA = int(os.environ.get("AGENT_DOCKER_CPU_QUOTA", "100000"))
 AGENT_DOCKER_CPU_PERIOD = int(os.environ.get("AGENT_DOCKER_CPU_PERIOD", "100000"))
 
+
+def _is_podman_daemon(client) -> bool:
+    """Detect if the container daemon is Podman (vs Docker).
+
+    Podman's Docker-compatible API includes 'Podman' in the version
+    components. Cache the result on the client object to avoid
+    repeated API calls.
+    """
+    cached = getattr(client, "_is_podman", None)
+    if cached is not None:
+        return cached
+    try:
+        info = client.version()
+        components = info.get("Components", [])
+        result = any("podman" in (c.get("Name", "")).lower() for c in components)
+        if not result:
+            # Fallback: some podman versions don't have Components
+            result = "podman" in info.get("Version", "").lower()
+    except Exception:
+        result = False
+    # Cache on the client instance
+    try:
+        client._is_podman = result
+    except AttributeError:
+        pass
+    return result
+
+
 PERMISSIVE_PRESET: dict[str, Any] = {
     "mem_limit": AGENT_DOCKER_MEM_LIMIT,
     "cpu_quota": AGENT_DOCKER_CPU_QUOTA,
@@ -274,16 +302,27 @@ def _build_docker_client():
             if DOCKER_HOST
             else "default Unix socket /var/run/docker.sock"
         )
+        is_permission = "Permission denied" in str(exc)
+        podman_hint = ""
+        if is_permission:
+            podman_hint = (
+                " If using Podman, ensure the socket is mounted with ':z' label "
+                "and '--security-opt label=disable' is set on the admin container. "
+                "Also verify 'podman.socket' is active: "
+                "systemctl --user enable --now podman.socket"
+            )
         raise AgentRuntimeError(
-            f"Cannot reach Docker daemon ({hint}). "
+            f"Cannot reach container daemon ({hint}). "
             "Ensure the daemon is running and the endpoint is accessible. "
-            "For TCP: set DOCKER_HOST=tcp://<host>:2375 and ensure the Docker "
-            "daemon listens on TCP (dockerd -H tcp://0.0.0.0:2375)."
+            "For TCP: set DOCKER_HOST=tcp://<host>:2375 and ensure the daemon "
+            f"listens on TCP.{podman_hint}"
         ) from exc
 
     info = client.version()
+    engine_name = "Podman" if _is_podman_daemon(client) else "Docker"
     logger.info(
-        "Docker daemon connected — API v%s, Engine %s",
+        "%s daemon connected — API v%s, Engine %s",
+        engine_name,
         info.get("ApiVersion", "?"),
         info.get("Version", "?"),
     )
@@ -416,7 +455,10 @@ class DockerRuntime(WorkerRuntimeBase):
                 if key and value:
                     env[key] = str(value)
 
-            needs_host_gateway = "host.docker.internal" in admin_url
+            is_podman = _is_podman_daemon(self._client())
+            # Docker needs explicit extra_hosts for host.docker.internal on Linux;
+            # Podman resolves it natively — no extra_hosts needed.
+            needs_host_gateway = "host.docker.internal" in admin_url and not is_podman
             admin_network = None if remote else _detect_admin_network(self._client())
 
             def _run():
@@ -465,6 +507,13 @@ class DockerRuntime(WorkerRuntimeBase):
                     kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
                 if admin_network and kwargs.get("network_mode") is None:
                     kwargs["network"] = admin_network
+
+                # Podman: disable SELinux label confinement so volume mounts work
+                if is_podman:
+                    sec = list(kwargs.get("security_opt") or [])
+                    if "label=disable" not in sec:
+                        sec.append("label=disable")
+                    kwargs["security_opt"] = sec
 
                 return client.containers.run(**kwargs)
 

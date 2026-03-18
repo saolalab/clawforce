@@ -1,11 +1,14 @@
 # Clawforce Makefile
-# 
+#
 # Development:   make dev        (or: make backend + make frontend in two terminals)
 # Docs preview:  make docs       (VitePress at http://localhost:4173/clawforce/)
 # Production:    make install && clawforce setup && clawforce serve
-# Docker:        docker compose up
+# Container:     make container  (uses docker by default, set ENGINE=podman for podman)
 
-.PHONY: install dev backend frontend docs docs-dev setup build test lint lint-fix format clean user-list user-create user-update user-set-password docker docker-nobuild docker-clean docker-logs
+# Container engine: docker (default) or podman
+ENGINE ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
+
+.PHONY: install dev backend frontend docs docs-dev setup build test lint lint-fix format clean user-list user-create user-update user-set-password container container-nobuild container-clean container-logs
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Installation
@@ -90,20 +93,20 @@ format:
 	uv run ruff format .
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Docker (local)
+# Container (local) — set ENGINE=podman to use podman
 # ─────────────────────────────────────────────────────────────────────────────
 
-docker:
-	./scripts/dev.sh --logs
+container:
+	CLAWFORCE_ENGINE=$(ENGINE) ./scripts/dev.sh --logs
 
-docker-nobuild:
-	./scripts/dev.sh --no-build --logs
+container-nobuild:
+	CLAWFORCE_ENGINE=$(ENGINE) ./scripts/dev.sh --no-build --logs
 
-docker-clean:
-	./scripts/dev.sh --clean --logs
+container-clean:
+	CLAWFORCE_ENGINE=$(ENGINE) ./scripts/dev.sh --clean --logs
 
-docker-logs:
-	docker logs -f clawforce
+container-logs:
+	$(ENGINE) logs -f clawforce
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cleanup
