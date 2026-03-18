@@ -214,7 +214,8 @@ async def update_agent(
     config_dict = None
     if overrides:
         overrides = strip_redacted(overrides)
-        persisted = agent_config_store.update_config(agent_id, overrides)
+        replace_keys = [("tools", "mcp_servers")] if body.tools and "mcp_servers" in body.tools else None
+        persisted = agent_config_store.update_config(agent_id, overrides, replace_keys=replace_keys)
         try:
             config_dict = await runtime.apply_config(agent_id, persisted)
         except AgentRuntimeError:

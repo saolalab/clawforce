@@ -57,6 +57,12 @@ class ProviderSpec:
     # Direct providers bypass LiteLLM entirely (e.g., CustomProvider)
     is_direct: bool = False
 
+    # Tool schema compatibility mode.
+    # "strict" → sanitize JSON Schema before sending (strip anyOf/oneOf/allOf,
+    #             ensure array items have type, etc.) — required for Gemini.
+    # ""       → pass schemas as-is (OpenAI, Anthropic, etc.)
+    tool_schema_mode: str = ""
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
@@ -220,6 +226,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
     # Gemini: needs "gemini/" prefix for LiteLLM.
+    # tool_schema_mode="strict": Gemini rejects anyOf/oneOf/allOf and requires
+    # explicit "type" on every schema node — sanitize before sending.
     ProviderSpec(
         name="gemini",
         keywords=("gemini",),
@@ -235,6 +243,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
+        tool_schema_mode="strict",
     ),
     # Zhipu: LiteLLM uses "zai/" prefix.
     # Also mirrors key to ZHIPUAI_API_KEY (some LiteLLM paths check that).

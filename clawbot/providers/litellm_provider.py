@@ -17,6 +17,7 @@ from clawbot.providers.base import (
 )
 from clawbot.providers.fault_tolerance import retry_async
 from clawbot.providers.registry import find_by_model, find_gateway
+from clawbot.providers.schema_compat import sanitize_tools
 from clawlib.config.schema import FaultToleranceConfig
 
 
@@ -179,7 +180,9 @@ class LiteLLMProvider(LLMProvider):
             kwargs["extra_headers"] = self.extra_headers
 
         if tools:
-            kwargs["tools"] = tools
+            spec = self._gateway or find_by_model(model)
+            mode = spec.tool_schema_mode if spec else ""
+            kwargs["tools"] = sanitize_tools(tools, mode)
             kwargs["tool_choice"] = "auto"
 
         timeout_exc = getattr(litellm, "Timeout", None) or getattr(litellm, "APITimeoutError", None)

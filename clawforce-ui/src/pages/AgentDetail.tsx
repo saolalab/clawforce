@@ -242,6 +242,7 @@ export default function AgentDetail() {
       if (!updated.tools) updated.tools = defaultTools();
       if (!updated.skills) updated.skills = defaultSkills();
       if (!updated.channels) updated.channels = {};
+      if (!updated.providers) updated.providers = {};
       if (!updated.heartbeat) updated.heartbeat = defaultHeartbeat();
       if (!updated.security) updated.security = {};
       const updatedAgent = updated as Agent;

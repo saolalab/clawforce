@@ -116,7 +116,7 @@ export function SettingsContent({
         {tab === "general" && <GeneralTab agentId={agentId} agent={agent} update={update} updateTools={updateTools} />}
         {tab === "variables" && <VariablesTab agentId={agentId} />}
         {tab === "channels" && <ChannelsTab agent={agent} updateChannel={updateChannel} />}
-        {tab === "tools" && <ToolsTab agent={agent} updateTools={updateTools} setTools={setTools} />}
+        {tab === "tools" && <ToolsTab agentId={agentId} agent={agent} updateTools={updateTools} setTools={setTools} />}
         {tab === "skills" && <SkillsTab agentId={agentId} agent={agent} updateSkills={updateSkills} />}
         {tab === "software" && <EphemeralSoftwareTab agent={agent} setTools={setTools} />}
 

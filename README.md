@@ -216,8 +216,6 @@ clawforce serve
 - **Plan**: Orchestrator for agent work — shared Kanban board, tasks, artifacts. Coordinator decides when each agent engages; activation marks plan ready. Agents pull from external systems (GitHub, Jira) and create tasks; Plan does not sync. See [Plans guide](https://saolalab.github.io/clawforce/guide/plans).
 - **Workspace**: Isolated filesystem directory where an agent reads, writes, and builds
 
-See [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md) for complete definitions.
-
 ---
 
 ## Development

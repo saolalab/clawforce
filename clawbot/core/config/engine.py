@@ -131,7 +131,14 @@ class ConfigEngine:
         plain = Config.model_validate(plain).model_dump(by_alias=False)
 
         old_tools = (self._config.model_dump(by_alias=False) if self._config else {}).get("tools")
+        # Extract mcp_servers before merge so we can replace (not deep-merge) after
+        incoming_mcp = plain.get("tools", {}).get("mcp_servers")
         self.merge(plain)
+        # mcp_servers must be replaced, not merged — deep_merge would re-add deleted servers
+        if incoming_mcp is not None and self._config is not None:
+            current = self._config.model_dump(by_alias=False)
+            current.setdefault("tools", {})["mcp_servers"] = incoming_mcp
+            self._config = Config.model_validate(current)
 
         to_save = {
             k: v

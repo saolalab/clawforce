@@ -264,6 +264,7 @@ class AgentLoop:
         """Run the agent loop, processing messages from the bus."""
         self._running = True
         self._mcp_manager.connect()
+        await self._mcp_manager.await_connected()
         logger.info("Agent loop started")
 
         while self._running:

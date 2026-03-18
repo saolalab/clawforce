@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { api } from "../../../lib/api";
 import { css, BUILTIN_TOOLS } from "../constants";
 import { Section, Toggle } from "../ui/Section";
 import type { Agent, ApprovalCfg, MCPServer, ToolsCfg } from "../types";
@@ -101,74 +102,305 @@ function ToolApprovalSection({ tools, setTools }: { tools: ToolsCfg; setTools: (
   );
 }
 
-export function ToolsTab({ agent, updateTools, setTools }: { agent: Agent; updateTools: (p: Record<string, unknown>) => void; setTools: (t: ToolsCfg) => void }) {
+function serializeKV(obj: Record<string, string> | undefined): string {
+  if (!obj) return "";
+  return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join("\n");
+}
+
+function parseKV(text: string): Record<string, string> {
+  return Object.fromEntries(
+    text.split("\n").filter(Boolean).map((line) => {
+      const [k, ...rest] = line.split("=");
+      return [k.trim(), rest.join("=").trim()];
+    }),
+  );
+}
+
+type EditState = {
+  name: string;
+  type: "stdio" | "http";
+  cmd: string;
+  args: string;
+  url: string;
+  env: string;
+  headers: string;
+  enabledTools: string;
+};
+
+function mcpServerToEditState(name: string, srv: import("../types").MCPServer): EditState {
+  return {
+    name,
+    type: srv.url ? "http" : "stdio",
+    cmd: srv.command || "",
+    args: (srv.args || []).join(", "),
+    url: srv.url || "",
+    env: serializeKV(srv.env),
+    headers: serializeKV(srv.headers),
+    enabledTools: (srv.enabledTools || []).join(", "),
+  };
+}
+
+function editStateToServer(s: EditState): import("../types").MCPServer {
+  const enabledToolsList = s.enabledTools.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
+  if (s.type === "stdio") {
+    return {
+      command: s.cmd,
+      args: s.args.split(",").map((a) => a.trim()).filter(Boolean),
+      env: parseKV(s.env),
+      url: "",
+      ...(enabledToolsList.length > 0 && { enabledTools: enabledToolsList }),
+    };
+  }
+  return {
+    command: "",
+    args: [],
+    env: {},
+    url: s.url,
+    headers: parseKV(s.headers),
+    ...(enabledToolsList.length > 0 && { enabledTools: enabledToolsList }),
+  };
+}
+
+function McpToolPicker({
+  agentId,
+  serverKey,
+  enabledTools,
+  onChange,
+}: {
+  agentId: string;
+  serverKey: string;
+  enabledTools: string;
+  onChange: (v: string) => void;
+}) {
+  const [tools, setTools] = useState<{ name: string; description: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [fetched, setFetched] = useState(false);
+
+  const selected = new Set(
+    enabledTools.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean)
+  );
+
+  function toggle(name: string) {
+    const next = new Set(selected);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    onChange([...next].join(", "));
+  }
+
+  function fetchTools() {
+    if (!agentId || !serverKey) return;
+    setLoading(true);
+    setError("");
+    api.mcp.getTools(agentId, serverKey)
+      .then((r) => {
+        setTools(r.tools.map((t) => ({ name: t.name, description: t.description })));
+        setFetched(true);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }
+
+  if (!agentId || !serverKey) {
+    return (
+      <div>
+        <label className={css.label}>Enabled Tools</label>
+        <input className={css.input} value={enabledTools} onChange={(e) => onChange(e.target.value)} placeholder="Leave empty for all tools. e.g. read_file, write_file" />
+        <p className="mt-1 text-[10px] text-claude-text-muted">Save the agent first to pick tools interactively.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className={css.label}>
+          Enabled Tools
+          {selected.size > 0 && (
+            <span className="ml-1.5 text-[10px] font-normal text-claude-accent">
+              {selected.size} of {fetched ? tools.length : "?"} selected
+            </span>
+          )}
+        </label>
+        <div className="flex items-center gap-2">
+          {fetched && tools.length > 0 && (
+            <>
+              <button type="button" onClick={() => onChange(tools.map((t) => t.name).join(", "))} className="text-[10px] text-claude-text-muted hover:text-claude-accent transition-colors">
+                All
+              </button>
+              <button type="button" onClick={() => onChange("")} className="text-[10px] text-claude-text-muted hover:text-claude-accent transition-colors">
+                None
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={fetchTools}
+            disabled={loading}
+            className="text-[10px] text-claude-accent hover:underline disabled:opacity-50"
+          >
+            {loading ? "Loading…" : fetched ? "Refresh" : "Load tools"}
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-[10px] text-red-500 mb-1">{error}</p>}
+
+      {!fetched ? (
+        <p className="text-[10px] text-claude-text-muted">
+          {selected.size > 0
+            ? `${selected.size} tool(s) configured. Click "Load tools" to see and edit them.`
+            : 'Click "Load tools" to see available tools (agent must be running).'}
+        </p>
+      ) : tools.length === 0 ? (
+        <p className="text-[10px] text-claude-text-muted">No tools found.</p>
+      ) : (
+        <div className="max-h-48 overflow-y-auto rounded-lg border border-claude-border bg-claude-bg divide-y divide-claude-border/50">
+          {tools.map((t) => (
+            <label key={t.name} className="flex items-start gap-2.5 px-2.5 py-1.5 cursor-pointer hover:bg-claude-surface transition-colors">
+              <input
+                type="checkbox"
+                checked={selected.size === 0 || selected.has(t.name)}
+                onChange={() => {
+                  if (selected.size === 0) {
+                    // "all" → deselect this one means enable all others
+                    onChange(tools.filter((x) => x.name !== t.name).map((x) => x.name).join(", "));
+                  } else {
+                    toggle(t.name);
+                  }
+                }}
+                className="mt-0.5 accent-claude-accent shrink-0"
+              />
+              <div className="min-w-0">
+                <span className="text-xs font-mono text-claude-text-primary">{t.name}</span>
+                {t.description && (
+                  <p className="text-[10px] text-claude-text-muted truncate">{t.description}</p>
+                )}
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+      {fetched && selected.size === 0 && (
+        <p className="mt-1 text-[10px] text-claude-text-muted">All tools enabled (none filtered).</p>
+      )}
+    </div>
+  );
+}
+
+function McpServerEditForm({
+  agentId,
+  initial,
+  onSave,
+  onCancel,
+  isNew,
+}: {
+  agentId: string;
+  initial: EditState;
+  onSave: (name: string, srv: import("../types").MCPServer) => void;
+  onCancel: () => void;
+  isNew: boolean;
+}) {
+  const [s, setS] = useState<EditState>(initial);
+  const patch = (p: Partial<EditState>) => setS((prev) => ({ ...prev, ...p }));
+
+  return (
+    <div className="mt-2 space-y-2.5 rounded-lg border border-claude-accent/30 bg-claude-accent-soft p-3">
+      {isNew && (
+        <div>
+          <label className={css.label}>Server Name</label>
+          <input className={css.input} value={s.name} onChange={(e) => patch({ name: e.target.value })} placeholder="my-mcp-server" autoFocus />
+        </div>
+      )}
+
+      <div className="flex gap-4">
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+          <input type="radio" checked={s.type === "stdio"} onChange={() => patch({ type: "stdio" })} className="accent-claude-accent" />
+          stdio
+        </label>
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+          <input type="radio" checked={s.type === "http"} onChange={() => patch({ type: "http" })} className="accent-claude-accent" />
+          HTTP
+        </label>
+      </div>
+
+      {s.type === "stdio" ? (
+        <>
+          <div>
+            <label className={css.label}>Command</label>
+            <input className={css.input} value={s.cmd} onChange={(e) => patch({ cmd: e.target.value })} placeholder="npx" />
+          </div>
+          <div>
+            <label className={css.label}>Arguments (comma-separated)</label>
+            <input className={css.input} value={s.args} onChange={(e) => patch({ args: e.target.value })} placeholder="-y, @modelcontextprotocol/server-filesystem, /path" />
+          </div>
+          <div>
+            <label className={css.label}>Environment Variables (KEY=VALUE, one per line)</label>
+            <textarea className={`${css.input} resize-none font-mono`} rows={2} value={s.env} onChange={(e) => patch({ env: e.target.value })} placeholder="API_KEY=abc123" />
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <label className={css.label}>URL</label>
+            <input className={css.input} value={s.url} onChange={(e) => patch({ url: e.target.value })} placeholder="https://example.com/mcp" />
+          </div>
+          <div>
+            <label className={css.label}>Headers (KEY=VALUE, one per line)</label>
+            <textarea
+              className={`${css.input} resize-none font-mono`}
+              rows={3}
+              value={s.headers}
+              onChange={(e) => patch({ headers: e.target.value })}
+              placeholder={"Authorization=Bearer <token>\nX-Api-Key=your-key"}
+            />
+            <p className="mt-1 text-[10px] text-claude-text-muted">
+              For OAuth: <code className="font-mono">Authorization=Bearer &lt;token&gt;</code>
+            </p>
+          </div>
+        </>
+      )}
+
+      <McpToolPicker
+        agentId={agentId}
+        serverKey={isNew ? "" : s.name}
+        enabledTools={s.enabledTools}
+        onChange={(v) => patch({ enabledTools: v })}
+      />
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => { if (isNew ? s.name.trim() : true) onSave(s.name.trim(), editStateToServer(s)); }}
+          disabled={isNew && !s.name.trim()}
+          className={`${css.btn} bg-claude-accent text-white hover:bg-claude-accent-hover disabled:opacity-40`}
+        >
+          {isNew ? "Add Server" : "Save Changes"}
+        </button>
+        <button onClick={onCancel} className={`${css.btn} text-claude-text-muted hover:text-claude-text-secondary`}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function ToolsTab({ agentId, agent, updateTools, setTools }: { agentId: string; agent: Agent; updateTools: (p: Record<string, unknown>) => void; setTools: (t: ToolsCfg) => void }) {
   const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newType, setNewType] = useState<"stdio" | "http">("stdio");
-  const [newCmd, setNewCmd] = useState("");
-  const [newArgs, setNewArgs] = useState("");
-  const [newUrl, setNewUrl] = useState("");
-  const [newEnv, setNewEnv] = useState("");
-  const [newHeaders, setNewHeaders] = useState("");
-  const [newEnabledTools, setNewEnabledTools] = useState("");
+  const [editingServer, setEditingServer] = useState<string | null>(null);
 
   const tools = agent.tools;
   const mcpServers = tools.mcp_servers || {};
 
-  function addServer() {
-    if (!newName.trim()) return;
-    const enabledToolsList = newEnabledTools
-      .split(/[,\s]+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
-    const srv: MCPServer =
-      newType === "stdio"
-        ? {
-          command: newCmd,
-          args: newArgs.split(",").map((s) => s.trim()).filter(Boolean),
-          env: Object.fromEntries(
-            newEnv.split("\n").filter(Boolean).map((line) => {
-              const [k, ...rest] = line.split("=");
-              return [k.trim(), rest.join("=").trim()];
-            }),
-          ),
-          url: "",
-          ...(enabledToolsList.length > 0 && { enabledTools: enabledToolsList }),
-        }
-        : {
-          command: "",
-          args: [],
-          env: {},
-          url: newUrl,
-          headers: Object.fromEntries(
-            newHeaders.split("\n").filter(Boolean).map((line) => {
-              const [k, ...rest] = line.split("=");
-              return [k.trim(), rest.join("=").trim()];
-            }),
-          ),
-          ...(enabledToolsList.length > 0 && { enabledTools: enabledToolsList }),
-        };
-
-    updateTools({ mcp_servers: { ...mcpServers, [newName.trim()]: srv } });
-    resetForm();
+  function saveServer(name: string, srv: MCPServer) {
+    updateTools({ mcp_servers: { ...mcpServers, [name]: srv } });
+    setAdding(false);
+    setEditingServer(null);
   }
 
   function removeServer(name: string) {
     const next = { ...mcpServers };
     delete next[name];
     setTools({ ...tools, mcp_servers: next });
-  }
-
-  function resetForm() {
-    setAdding(false);
-    setNewName("");
-    setNewCmd("");
-    setNewArgs("");
-    setNewUrl("");
-    setNewEnv("");
-    setNewHeaders("");
-    setNewEnabledTools("");
-    setNewType("stdio");
   }
 
   return (
@@ -238,144 +470,78 @@ export function ToolsTab({ agent, updateTools, setTools }: { agent: Agent; updat
         <div className="space-y-2">
           {Object.entries(mcpServers).map(([name, srv]) => {
             const st = agent.mcp_status?.[name];
+            const isEditing = editingServer === name;
             return (
-              <div key={name} className="flex items-start justify-between rounded-lg border border-claude-border bg-claude-bg p-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-claude-text-primary">{name}</span>
-                    <span
-                      className={`rounded px-1.5 py-px text-[10px] font-medium ${srv.url
-                          ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
-                          : "bg-purple-50 text-purple-700 ring-1 ring-purple-200"
-                        }`}
-                    >
-                      {srv.url ? "HTTP" : "stdio"}
-                    </span>
-                    {st && (
+              <div key={name}>
+                <div className="flex items-start justify-between rounded-lg border border-claude-border bg-claude-bg p-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-claude-text-primary">{name}</span>
                       <span
-                        className={`rounded px-1.5 py-px text-[10px] font-medium ${st.status === "connected"
-                            ? "bg-green-50 text-green-700 ring-1 ring-green-200"
-                            : st.status === "failed"
-                              ? "bg-red-50 text-red-700 ring-1 ring-red-200"
-                              : "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200"
+                        className={`rounded px-1.5 py-px text-[10px] font-medium ${srv.url
+                            ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                            : "bg-purple-50 text-purple-700 ring-1 ring-purple-200"
                           }`}
-                        title={st.error || undefined}
                       >
-                        {st.status === "connected" ? `connected (${st.tools} tools)` : st.status}
+                        {srv.url ? "HTTP" : "stdio"}
                       </span>
+                      {st && (
+                        <span
+                          className={`rounded px-1.5 py-px text-[10px] font-medium ${st.status === "connected"
+                              ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                              : st.status === "failed"
+                                ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                                : "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200"
+                            }`}
+                          title={st.error || undefined}
+                        >
+                          {st.status === "connected" ? `connected (${st.tools} tools)` : st.status}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-claude-text-muted font-mono">
+                      {srv.url || `${srv.command} ${(srv.args || []).join(" ")}`}
+                    </p>
+                    {st?.status === "failed" && st.error && (
+                      <p className="mt-0.5 text-xs text-red-500 truncate" title={st.error}>
+                        {st.error}
+                      </p>
                     )}
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-claude-text-muted font-mono">
-                    {srv.url || `${srv.command} ${(srv.args || []).join(" ")}`}
-                  </p>
-                  {st?.status === "failed" && st.error && (
-                    <p className="mt-0.5 text-xs text-red-500 truncate" title={st.error}>
-                      {st.error}
-                    </p>
-                  )}
+                  <div className="ml-3 flex items-center gap-2.5 shrink-0">
+                    <button
+                      onClick={() => setEditingServer(isEditing ? null : name)}
+                      className="text-xs text-claude-text-muted hover:text-claude-accent transition-colors"
+                    >
+                      {isEditing ? "Cancel" : "Edit"}
+                    </button>
+                    <button onClick={() => removeServer(name)} className="text-xs text-red-400 hover:text-red-600 transition-colors">
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <button onClick={() => removeServer(name)} className="ml-3 text-xs text-red-400 hover:text-red-600 transition-colors">
-                  Remove
-                </button>
+                {isEditing && (
+                  <McpServerEditForm
+                    agentId={agentId}
+                    initial={mcpServerToEditState(name, srv)}
+                    onSave={(_name, updated) => saveServer(name, updated)}
+                    onCancel={() => setEditingServer(null)}
+                    isNew={false}
+                  />
+                )}
               </div>
             );
           })}
         </div>
 
         {adding ? (
-          <div className="mt-2 space-y-2.5 rounded-lg border border-claude-accent/30 bg-claude-accent-soft p-3">
-            <div>
-              <label className={css.label}>Server Name</label>
-              <input className={css.input} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="my-mcp-server" autoFocus />
-            </div>
-
-            <div className="flex gap-4">
-              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input type="radio" checked={newType === "stdio"} onChange={() => setNewType("stdio")} className="accent-claude-accent" />
-                stdio
-              </label>
-              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input type="radio" checked={newType === "http"} onChange={() => setNewType("http")} className="accent-claude-accent" />
-                HTTP
-              </label>
-            </div>
-
-            {newType === "stdio" ? (
-              <>
-                <div>
-                  <label className={css.label}>Command</label>
-                  <input className={css.input} value={newCmd} onChange={(e) => setNewCmd(e.target.value)} placeholder="npx" />
-                </div>
-                <div>
-                  <label className={css.label}>Arguments (comma-separated)</label>
-                  <input
-                    className={css.input}
-                    value={newArgs}
-                    onChange={(e) => setNewArgs(e.target.value)}
-                    placeholder="-y, @modelcontextprotocol/server-filesystem, /path"
-                  />
-                </div>
-                <div>
-                  <label className={css.label}>Environment Variables (KEY=VALUE, one per line)</label>
-                  <textarea
-                    className={`${css.input} resize-none font-mono`}
-                    rows={2}
-                    value={newEnv}
-                    onChange={(e) => setNewEnv(e.target.value)}
-                    placeholder="API_KEY=abc123"
-                  />
-                </div>
-                <div>
-                  <label className={css.label}>Enabled Tools (optional)</label>
-                  <input
-                    className={css.input}
-                    value={newEnabledTools}
-                    onChange={(e) => setNewEnabledTools(e.target.value)}
-                    placeholder="Comma-separated. Leave empty for all tools. e.g. read_file, write_file"
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <label className={css.label}>URL</label>
-                  <input className={css.input} value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://example.com/mcp" />
-                </div>
-                <div>
-                  <label className={css.label}>Headers (KEY=VALUE, one per line)</label>
-                  <textarea
-                    className={`${css.input} resize-none font-mono`}
-                    rows={2}
-                    value={newHeaders}
-                    onChange={(e) => setNewHeaders(e.target.value)}
-                    placeholder="Authorization=Bearer token"
-                  />
-                </div>
-                <div>
-                  <label className={css.label}>Enabled Tools (optional)</label>
-                  <input
-                    className={css.input}
-                    value={newEnabledTools}
-                    onChange={(e) => setNewEnabledTools(e.target.value)}
-                    placeholder="Comma-separated. Leave empty for all tools"
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={addServer}
-                disabled={!newName.trim()}
-                className={`${css.btn} bg-claude-accent text-white hover:bg-claude-accent-hover disabled:opacity-40`}
-              >
-                Add Server
-              </button>
-              <button onClick={resetForm} className={`${css.btn} text-claude-text-muted hover:text-claude-text-secondary`}>
-                Cancel
-              </button>
-            </div>
-          </div>
+          <McpServerEditForm
+            agentId={agentId}
+            initial={{ name: "", type: "stdio", cmd: "", args: "", url: "", env: "", headers: "", enabledTools: "" }}
+            onSave={saveServer}
+            onCancel={() => setAdding(false)}
+            isNew={true}
+          />
         ) : (
           <button
             type="button"

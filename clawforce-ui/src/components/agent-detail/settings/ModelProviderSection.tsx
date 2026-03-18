@@ -22,11 +22,32 @@ export function ModelProviderSection({
   const detected = detectProvider(model);
   const [selectedProvider, setSelectedProvider] = useState(detected?.field || "");
 
+  // Sync selectedProvider when model prop changes externally (e.g. after save reloads agent)
+  const prevModelRef = useRef(model);
+  useEffect(() => {
+    if (model !== prevModelRef.current) {
+      prevModelRef.current = model;
+      const newDetected = detectProvider(model);
+      if (newDetected?.field && newDetected.field !== selectedProvider) {
+        setSelectedProvider(newDetected.field);
+      }
+    }
+  }, [model, selectedProvider]);
+
   // Load saved API key: backend stores as api_key (snake), frontend may have apiKey (camel)
   const savedKey = selectedProvider && savedProviders?.[selectedProvider]
     ? ((savedProviders[selectedProvider].apiKey ?? savedProviders[selectedProvider].api_key ?? "") as string)
     : "";
   const [apiKey, setApiKey] = useState(savedKey);
+
+  // Sync apiKey when savedProviders refreshes (e.g. after save reloads agent data)
+  const prevSavedKeyRef = useRef(savedKey);
+  useEffect(() => {
+    if (savedKey !== prevSavedKeyRef.current) {
+      prevSavedKeyRef.current = savedKey;
+      setApiKey(savedKey);
+    }
+  }, [savedKey]);
   const [models, setModels] = useState<FetchedModel[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState("");

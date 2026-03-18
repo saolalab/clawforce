@@ -74,6 +74,19 @@ class McpManager:
         self._connected = True
         self._connect_task = asyncio.create_task(self._connect())
 
+    async def await_connected(self, timeout: float = 15.0) -> None:
+        """Wait for the background MCP connection task to finish (up to `timeout` seconds).
+
+        Safe to call even if connect() was never called or already finished.
+        Used at agent startup so the first message sees all MCP tools in the system prompt.
+        """
+        if self._connect_task is None or self._connect_task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(self._connect_task), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning("MCP connection did not finish within {}s; continuing anyway", timeout)
+
     async def _connect(self) -> None:
         """Connect to configured MCP servers (one-time). Runs in background task."""
         try:
