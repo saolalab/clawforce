@@ -252,6 +252,33 @@ def _software_port_env(installed_software: dict, registry) -> dict[str, str]:
     return env
 
 
+def _software_bridge_env(agent_root: str) -> dict[str, str]:
+    """Inject AUTH_DIR so WhatsApp bridge (daemon + QR command) persists auth under the agent volume."""
+    return {"AUTH_DIR": f"{agent_root}/data/whatsapp"}
+
+
+def _software_port_mappings(installed_software: dict, registry) -> dict[str, tuple[str, int]]:
+    """Return host port mappings for software that exposes admin/HTTP APIs to the host.
+
+    WhatsApp bridge: admin API on port+1 (3002) must be reachable from the UI in the browser.
+    """
+    mappings: dict[str, tuple[str, int]] = {}
+    for slug in installed_software:
+        catalog_entry = registry.get_entry(slug) or {}
+        port = (catalog_entry.get("run") or {}).get("port")
+        if port is None:
+            continue
+        try:
+            base_port = int(port)
+        except (TypeError, ValueError):
+            continue
+        # whatsapp-bridge: WS=3001, admin=3002. Publish admin for UI bridge-availability check.
+        if slug == "whatsapp-bridge":
+            admin_port = base_port + 1
+            mappings[f"{admin_port}/tcp"] = ("127.0.0.1", admin_port)
+    return mappings
+
+
 def _agent_docker_security(storage: StorageBackend, base_path: str) -> DockerSecurityConfig:
     """Read agent's security.docker from .config/agent.json; fall back to defaults."""
     path = f"{AGENTS_DIR}/{base_path}/.config/agent.json"
@@ -436,7 +463,10 @@ class DockerRuntime(WorkerRuntimeBase):
             agent_config_store = AgentConfigStore(get_database(), fernet=get_fernet())
             agent_config = agent_config_store.get_config(agent_id) or {}
             installed_software = (agent_config.get("tools") or {}).get("software") or {}
-            extra_ports = _software_port_env(installed_software, get_software_registry())
+            registry = get_software_registry()
+            extra_ports = _software_port_env(installed_software, registry)
+            port_mappings = _software_port_mappings(installed_software, registry)
+            bridge_env = _software_bridge_env(agent_root_in_container)
 
             env = {
                 "AGENT_ID": agent_id,
@@ -444,6 +474,7 @@ class DockerRuntime(WorkerRuntimeBase):
                 "ADMIN_URL": admin_url,
                 "AGENT_TOKEN": cp["agent_token"],
                 **extra_ports,
+                **bridge_env,
                 "AGENT_LOG_LEVEL": docker_cfg.log_level
                 or os.environ.get("AGENT_LOG_LEVEL", "INFO"),
                 "PYTHONUNBUFFERED": "1",
@@ -507,6 +538,8 @@ class DockerRuntime(WorkerRuntimeBase):
                     kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
                 if admin_network and kwargs.get("network_mode") is None:
                     kwargs["network"] = admin_network
+                if port_mappings:
+                    kwargs["ports"] = port_mappings
 
                 # Podman: disable SELinux label confinement so volume mounts work
                 if is_podman:

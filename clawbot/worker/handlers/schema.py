@@ -139,6 +139,7 @@ class InstallSoftwareRequest(BaseModel):
     args: list[str] = Field(default_factory=list)
     stdin: bool = False
     env: dict[str, str] = Field(default_factory=dict)
+    post_install: dict | None = None
 
 
 class UninstallSoftwareRequest(BaseModel):

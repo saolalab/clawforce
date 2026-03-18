@@ -45,14 +45,24 @@ Uses WebSocket long connection — no public IP or webhook required.
 
 Requires the Node.js bridge (`bridges/whatsapp/` in this repo). WhatsApp has no official bot API; the bridge uses [Baileys](https://github.com/WhiskeySockets/Baileys) to connect via WhatsApp Web.
 
-1. Install and run the bridge:
-   ```bash
-   cd bridges/whatsapp && npm install && npm run build && npm start
-   ```
-2. Scan the QR code with WhatsApp on your phone (first run only).
-3. In agent Channels settings: set `bridgeUrl` (default `ws://localhost:3001`), optionally `bridgeToken` if `BRIDGE_TOKEN` is set on the bridge.
+**Docker agents (Marketplace install):**
 
-Bridge env vars: `BRIDGE_PORT` (default 3001), `AUTH_DIR` (auth storage), `BRIDGE_TOKEN` (optional auth).
+1. Install `whatsapp-bridge` from the Software catalog (Marketplace → Software). The bridge installs and starts automatically via `post_install`.
+2. To link your WhatsApp account, open the terminal in the **Workspace** tab and run:
+   ```bash
+   clawbot-whatsapp-bridge
+   ```
+3. Scan the QR code with WhatsApp (Linked Devices) on your phone. The session is saved automatically. The bridge daemon picks up credentials on next connect — restart the agent if needed.
+4. In agent Channels settings: enable WhatsApp.
+
+**Manual setup:**
+
+1. Install the bridge: `cd bridges/whatsapp && npm install && npm run build`
+2. To link your account (first run): run `clawbot-whatsapp-bridge` — QR appears in the terminal, scan it, credentials saved, process exits. No ports opened.
+3. To start the daemon: run `clawbot-whatsapp-bridge start`
+4. In agent Channels settings: set `bridgeUrl` (default `ws://localhost:3001`), optionally `bridgeToken` if `BRIDGE_TOKEN` is set.
+
+Bridge env vars: `WHATSAPP_BRIDGE_PORT` or `BRIDGE_PORT` (default 3001), `AUTH_DIR` (auth storage), `BRIDGE_TOKEN` (optional auth).
 
 ## Zalo
 

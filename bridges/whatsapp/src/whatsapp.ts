@@ -31,6 +31,8 @@ export interface WhatsAppClientOptions {
   onMessage: (msg: InboundMessage) => void;
   onQR: (qr: string, refresh?: () => void) => void;
   onStatus: (status: string) => void;
+  /** When true, exit process on successful connection (for QR-only login mode). */
+  exitOnConnect?: boolean;
 }
 
 export class WhatsAppClient {
@@ -84,11 +86,14 @@ export class WhatsAppClient {
 
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut && !this.options.exitOnConnect;
 
         console.log(`Connection closed. Status: ${statusCode}, Will reconnect: ${shouldReconnect}`);
         this.options.onStatus('disconnected');
 
+        if (this.options.exitOnConnect) {
+          process.exit(1);
+        }
         if (shouldReconnect && !this.reconnecting) {
           this.reconnecting = true;
           console.log('Reconnecting in 5 seconds...');
@@ -100,6 +105,10 @@ export class WhatsAppClient {
       } else if (connection === 'open') {
         console.log('✅ Connected to WhatsApp');
         this.options.onStatus('connected');
+        if (this.options.exitOnConnect) {
+          console.log('Session saved. You can close this terminal and start the bridge with: clawbot-whatsapp-bridge start');
+          process.exit(0);
+        }
       }
     });
 

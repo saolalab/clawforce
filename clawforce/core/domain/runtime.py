@@ -164,6 +164,7 @@ class AgentRuntimeBackend(ABC):
         args: list[str] | None = None,
         stdin: bool = False,
         env: dict[str, str] | None = None,
+        post_install: dict | None = None,
     ) -> dict:
         """Install a software (npm/pip) into the agent and add to config. Returns result dict."""
         raise AgentRuntimeError("install_software not implemented")

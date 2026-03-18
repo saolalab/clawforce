@@ -45,9 +45,13 @@ export function WorkspaceTab({
   const [moveDestValue, setMoveDestValue] = useState("");
   const [explorerWidth, setExplorerWidth] = useState(224);
   const [isResizing, setIsResizing] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(280);
+  const [isTerminalResizing, setIsTerminalResizing] = useState(false);
 
   const MIN_EXPLORER = 160;
   const MAX_EXPLORER = 480;
+  const MIN_TERMINAL = 120;
+  const MAX_TERMINAL = 600;
 
   function startResize() {
     setIsResizing(true);
@@ -78,6 +82,30 @@ export function WorkspaceTab({
       document.body.style.userSelect = "";
     };
   }, [isResizing]);
+
+  useEffect(() => {
+    if (!isTerminalResizing) return;
+    function onMove(e: MouseEvent) {
+      const container = document.querySelector("[data-workspace-container]");
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const relY = rect.bottom - e.clientY;
+      setTerminalHeight(Math.max(MIN_TERMINAL, Math.min(MAX_TERMINAL, relY)));
+    }
+    function onUp() {
+      setIsTerminalResizing(false);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isTerminalResizing]);
 
   const isLoading = wsLoading || profLoading;
   const isEmpty = !isLoading && files.length === 0;
@@ -472,7 +500,15 @@ export function WorkspaceTab({
           )}
         </div>
         {terminalOpen && (
-          <div className="flex-shrink-0 flex flex-col border-t border-claude-border" style={{ height: "280px" }}>
+          <div className="flex-shrink-0 flex flex-col border-t border-claude-border" style={{ height: `${terminalHeight}px` }}>
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              onMouseDown={() => setIsTerminalResizing(true)}
+              className={`flex-shrink-0 h-1.5 cursor-row-resize select-none flex items-center justify-center transition-colors hover:bg-claude-accent/20 ${isTerminalResizing ? "bg-claude-accent/30" : "bg-claude-border/50"}`}
+            >
+              <div className="w-12 h-0.5 rounded-full bg-claude-text-muted/40" />
+            </div>
             <TerminalPanel agentId={agentId} token={token} onClose={() => setTerminalOpen(false)} />
           </div>
         )}

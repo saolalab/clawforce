@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import QRCode from "qrcode";
 import { CHANNEL_DEFS, css } from "../constants";
 import { Toggle } from "../ui/Section";
 import type { Agent, FieldDef } from "../types";
@@ -15,123 +14,36 @@ function isSecretField(f: FieldDef): boolean {
   return f.type === "password" && SECRET_FIELD_NAMES.has(f.name);
 }
 
-/** Zalo bridge admin API is on port 3003 (bridge port 3002 + 1). */
-const ZALO_ADMIN_URL = "http://localhost:3003";
-/** WhatsApp bridge admin API is on port 3002 (bridge port 3001 + 1). */
-const WHATSAPP_ADMIN_URL = "http://localhost:3002";
-
-async function checkBridgeAvailable(adminUrl: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${adminUrl}/admin/qr`);
-    return res.ok || res.status === 404;
-  } catch {
-    return false;
-  }
-}
-
-async function fetchBridgeQR(adminUrl: string): Promise<{ qr: string; timestamp: number } | null> {
-  try {
-    const res = await fetch(`${adminUrl}/admin/qr`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.qr ? { qr: data.qr, timestamp: data.timestamp ?? Date.now() } : null;
-  } catch {
-    return null;
-  }
-}
-
-async function refreshBridgeQR(adminUrl: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${adminUrl}/admin/qr/refresh`, { method: "POST" });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-function BridgeQRModal({
-  title,
-  scanHint,
-  adminUrl,
-  onClose,
-}: {
-  title: string;
-  scanHint: string;
-  adminUrl: string;
-  onClose: () => void;
-}) {
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const data = await fetchBridgeQR(adminUrl);
-      if (cancelled) return;
-      if (data?.qr) {
-        try {
-          const url = await QRCode.toDataURL(data.qr, { width: 256, margin: 2 });
-          setQrDataUrl(url);
-        } catch {
-          setError("Failed to render QR code");
-        }
-      } else {
-        setError("No QR code available. The bridge may already be connected.");
-      }
-      setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [adminUrl]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    const ok = await refreshBridgeQR(adminUrl);
-    setRefreshing(false);
-    if (ok) {
-      const data = await fetchBridgeQR(adminUrl);
-      if (data?.qr) {
-        const url = await QRCode.toDataURL(data.qr, { width: 256, margin: 2 });
-        setQrDataUrl(url);
-        setError(null);
-      }
-    } else {
-      setError("Refresh failed. The bridge may already be authenticated.");
-    }
-  };
-
+function LinkWhatsAppInstruction() {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div
-        className="rounded-xl border border-claude-border bg-claude-bg p-6 shadow-xl max-w-sm w-full mx-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-sm font-semibold text-claude-text-primary mb-3">{title}</h3>
-        <p className="text-xs text-claude-text-muted mb-4">{scanHint}</p>
-        {loading && <p className="text-sm text-claude-text-muted py-8">Loading...</p>}
-        {error && !loading && <p className="text-sm text-amber-600 py-4">{error}</p>}
-        {qrDataUrl && (
-          <div className="flex flex-col items-center gap-4">
-            <img src={qrDataUrl} alt="QR Code" className="rounded-lg border border-claude-border" />
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium bg-claude-accent text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {refreshing ? "Refreshing..." : "Refresh QR Code"}
-            </button>
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-4 w-full rounded-lg border border-claude-border px-3 py-1.5 text-sm text-claude-text-secondary hover:bg-claude-surface"
-        >
-          Close
-        </button>
-      </div>
+    <div className="rounded-lg border border-claude-border bg-claude-surface/50 px-3 py-2.5 text-sm">
+      <p className="font-medium text-claude-text-primary mb-1">Link your WhatsApp account</p>
+      <p className="text-claude-text-muted mb-2">
+        Open the terminal in the <strong>Workspace</strong> tab and run:
+      </p>
+      <code className="block rounded bg-claude-input px-2 py-1.5 font-mono text-xs text-claude-text-secondary">
+        clawbot-whatsapp-bridge
+      </code>
+      <p className="text-claude-text-muted mt-2 text-xs">
+        Scan the QR code with WhatsApp (Linked Devices). The session is saved automatically. The bridge will reconnect on next start.
+      </p>
+    </div>
+  );
+}
+
+function LinkZaloInstruction() {
+  return (
+    <div className="rounded-lg border border-claude-border bg-claude-surface/50 px-3 py-2.5 text-sm">
+      <p className="font-medium text-claude-text-primary mb-1">Link your Zalo account</p>
+      <p className="text-claude-text-muted mb-2">
+        Open the terminal in the <strong>Workspace</strong> tab and run:
+      </p>
+      <code className="block rounded bg-claude-input px-2 py-1.5 font-mono text-xs text-claude-text-secondary">
+        clawbot-zalo-personal-bridge
+      </code>
+      <p className="text-claude-text-muted mt-2 text-xs">
+        Scan the QR code with Zalo. The session is saved automatically.
+      </p>
     </div>
   );
 }
@@ -144,28 +56,9 @@ export function ChannelsTab({
   updateChannel: (ch: string, patch: Record<string, unknown>) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [zaloAvailable, setZaloAvailable] = useState<boolean | null>(null);
-  const [whatsappAvailable, setWhatsAppAvailable] = useState<boolean | null>(null);
-  const [zaloQRModal, setZaloQRModal] = useState(false);
-  const [whatsappQRModal, setWhatsAppQRModal] = useState(false);
 
-  useEffect(() => {
-    if (expanded !== "zalouser") return;
-    let cancelled = false;
-    checkBridgeAvailable(ZALO_ADMIN_URL).then((ok) => {
-      if (!cancelled) setZaloAvailable(ok);
-    });
-    return () => { cancelled = true; };
-  }, [expanded]);
-
-  useEffect(() => {
-    if (expanded !== "whatsapp") return;
-    let cancelled = false;
-    checkBridgeAvailable(WHATSAPP_ADMIN_URL).then((ok) => {
-      if (!cancelled) setWhatsAppAvailable(ok);
-    });
-    return () => { cancelled = true; };
-  }, [expanded]);
+  const whatsappBridgeInstalled = !!(agent.tools?.software?.["whatsapp-bridge"]);
+  const zaloBridgeInstalled = !!(agent.tools?.software?.["zalo-personal-bridge"]);
 
   // Token/secret fields live in agent.channels; typing updates agent so the main Save persists them.
   function getTokenValue(chKey: string, fieldName: string): string {
@@ -176,31 +69,13 @@ export function ChannelsTab({
 
   return (
     <div className="space-y-2">
-      {zaloQRModal && (
-        <BridgeQRModal
-          title="Zalo QR Code"
-          scanHint="Scan with Zalo app to link your account"
-          adminUrl={ZALO_ADMIN_URL}
-          onClose={() => setZaloQRModal(false)}
-        />
-      )}
-      {whatsappQRModal && (
-        <BridgeQRModal
-          title="WhatsApp QR Code"
-          scanHint="Scan with WhatsApp (Linked Devices) to link your account"
-          adminUrl={WHATSAPP_ADMIN_URL}
-          onClose={() => setWhatsAppQRModal(false)}
-        />
-      )}
       {CHANNEL_DEFS.map((ch) => {
         const data = (agent.channels[ch.key] || {}) as Record<string, unknown>;
         const isEnabled = !!data.enabled;
         const isOpen = expanded === ch.key;
         const isZalo = ch.key === "zalouser";
         const isWhatsApp = ch.key === "whatsapp";
-        const zaloEndpointAvailable = isZalo ? zaloAvailable === true : true;
-        const whatsappEndpointAvailable = isWhatsApp ? whatsappAvailable === true : true;
-        const bridgeUnavailable = (isZalo && !zaloEndpointAvailable) || (isWhatsApp && !whatsappEndpointAvailable);
+        const bridgeUnavailable = (isZalo && !zaloBridgeInstalled) || (isWhatsApp && !whatsappBridgeInstalled);
 
         return (
           <div key={ch.key} className={css.card}>
@@ -224,7 +99,7 @@ export function ChannelsTab({
 
             {isOpen && (
               <div className="mt-3 space-y-2.5 border-t border-claude-border pt-3">
-                {isZalo && !zaloEndpointAvailable && (
+                {isZalo && !zaloBridgeInstalled && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
                     <p className="font-medium">Zalo Personal Bridge is not available</p>
                     <p className="mt-1 text-amber-700">
@@ -236,7 +111,7 @@ export function ChannelsTab({
                     </p>
                   </div>
                 )}
-                {isWhatsApp && !whatsappEndpointAvailable && (
+                {isWhatsApp && !whatsappBridgeInstalled && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
                     <p className="font-medium">WhatsApp Bridge is not available</p>
                     <p className="mt-1 text-amber-700">
@@ -327,26 +202,14 @@ export function ChannelsTab({
                     </div>
                   );
                 })}
-                {isZalo && zaloEndpointAvailable && (
+                {isZalo && zaloBridgeInstalled && (
                   <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setZaloQRModal(true)}
-                      className="rounded-lg border border-claude-border px-3 py-1.5 text-sm font-medium text-claude-text-primary hover:bg-claude-surface"
-                    >
-                      Show QR Code
-                    </button>
+                    <LinkZaloInstruction />
                   </div>
                 )}
-                {isWhatsApp && whatsappEndpointAvailable && (
+                {isWhatsApp && whatsappBridgeInstalled && (
                   <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setWhatsAppQRModal(true)}
-                      className="rounded-lg border border-claude-border px-3 py-1.5 text-sm font-medium text-claude-text-primary hover:bg-claude-surface"
-                    >
-                      Show QR Code
-                    </button>
+                    <LinkWhatsAppInstruction />
                   </div>
                 )}
               </div>
