@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import bcrypt
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 
 from clawforce.core.database import get_database
 from clawforce.core.store.agents import AgentStore
@@ -60,7 +60,7 @@ def create_access_token(sub: str, role: str = "admin") -> str:
 def decode_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 
