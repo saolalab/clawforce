@@ -286,7 +286,7 @@ function McpToolPicker({
           ))}
         </div>
       )}
-      {fetched && selected.size === 0 && (
+      {fetched && tools.length > 0 && selected.size === 0 && (
         <p className="mt-1 text-[10px] text-claude-text-muted">All tools enabled.</p>
       )}
     </div>
@@ -332,7 +332,6 @@ function McpServerEditForm({
             onChange={() => setS((prev) => ({
               ...prev,
               type: "http",
-              url: (prev.url || "").trim() || "http://localhost:3000/mcp",
             }))}
             className="accent-claude-accent"
           />
@@ -359,21 +358,12 @@ function McpServerEditForm({
         <>
           <div>
             <label className={css.label}>URL</label>
-            <div className="flex gap-2">
-              <input
-                className={`${css.input} flex-1`}
-                value={s.url}
-                onChange={(e) => patch({ url: e.target.value })}
-                placeholder="http://localhost:3000/mcp"
-              />
-              <button
-                type="button"
-                onClick={() => patch({ url: "http://localhost:3000/mcp" })}
-                className="text-[10px] text-claude-accent hover:underline whitespace-nowrap"
-              >
-                Use localhost:3000
-              </button>
-            </div>
+            <input
+              className={css.input}
+              value={s.url}
+              onChange={(e) => patch({ url: e.target.value })}
+              placeholder="https://your-mcp-server.example.com/mcp"
+            />
           </div>
           <div>
             <label className={css.label}>Headers</label>
@@ -399,10 +389,7 @@ function McpServerEditForm({
       <div className="flex gap-2">
         <button
           onClick={() => {
-            let server = editStateToServer(s);
-            if (s.type === "http" && !(server.url || "").trim()) {
-              server = { ...server, url: "http://localhost:3000/mcp" };
-            }
+            const server = editStateToServer(s);
             if (isNew ? s.name.trim() : true) onSave(s.name.trim(), server);
           }}
           disabled={isNew && !s.name.trim()}
