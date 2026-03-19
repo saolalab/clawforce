@@ -2,8 +2,7 @@
 
 ## Reporting a Vulnerability
 
-**Do not open a public GitHub issue.** Create a [private security advisory](https://github.com/saolalab/clawforce/security/advisories/new) on GitHub or email the maintainers. We aim to respond within 48 hours.
-
+**Do not open a public GitHub issue.** Create a [private security advisory](https://github.com/saolalab/clawforce/security/advisories/new) on GitHub or email the maintainers.
 ## Disclaimer
 
 AI agents are inherently susceptible to prompt injection, indirect prompt injection, social engineering, and jailbreaking. No security control fully prevents a sufficiently sophisticated attack. By using Clawforce you accept full responsibility for any actions the agent takes on your behalf.
@@ -66,10 +65,6 @@ Agent API keys and tokens live in `.config/agent.json` inside the agent's direct
 - Set `ADMIN_JWT_SECRET` to a strong random value (required when `CLAWFORCE_ENV=production`)
 - Rotate agent tokens with `clawforce agent token <id> --regenerate` if compromise is suspected
 - Restrict `CORS_ORIGINS` to the exact admin UI origin in production
-
-### Vault access
-
-The vault API requires the agent's own `agent_token`. Users cannot fetch another agent's secrets via the API. Each vault access is logged with `agent_id`, IP, and success/failure via the `clawforce.audit` logger.
 
 ---
 

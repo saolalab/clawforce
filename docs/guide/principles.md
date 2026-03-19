@@ -42,9 +42,9 @@ See [Security](/guide/security) for details.
 - **MCP Registry** — Prefer official or internal MCP servers over arbitrary HTTP endpoints
 - **Avoid unvetted tools** — Limit agents to software and MCPs you’ve reviewed
 
-### 3. Use Internal MaaS (Model-as-a-Service)
+### 3. Use Internal MaaS (MCP-as-a-Service)
 
-- **Internal MaaS** — Point agents to your internal LLM APIs for governance, cost control, and compliance
+- **Internal MaaS** — Point agents to your internal MCP servers for governance, cost control, and compliance
 - **LiteLLM** — Works with any OpenAI-compatible endpoint
 - **Data residency** — Keeps prompts and responses within your infrastructure
 
@@ -81,7 +81,7 @@ See [Security](/guide/security) for details.
 | Easy setup | Deploy from marketplace, configure via dashboard |
 | Background-first | No Computer/Browser Use; use MCP for integrations |
 | Security | Containers, vault, approval gates, audit logs |
-| Trusted tooling | Curated software, MCP registry, internal MaaS |
+| Trusted tooling | Curated software, MCP registry, internal MaaS (MCP-as-a-Service) |
 | Skills & Plans | Skills Registry for reuse; Plans for team coordination |
 | Gradual trust | Start sandboxed; relax only when necessary |
 

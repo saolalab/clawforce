@@ -113,23 +113,6 @@ Uses IMAP polling for inbound and SMTP for outbound. Requires explicit user cons
 
 ## Verification
 
-### Zalo Official Account (OA)
-
-1. Create a bot at [Zalo Bot Platform](https://bot.zaloplatforms.com) and get the bot token.
-2. In agent Channels: enable Zalo, set `botToken`.
-3. Start the agent. Check logs for `Zalo channel enabled` and `Starting Zalo channel (long-polling)...`.
-4. Message your bot from the Zalo app (search by bot name or scan QR). The bot should reply.
-5. If no reply: check `allowFrom` (empty = allow all), `group_policy` for groups, and `LOGURU_LEVEL=DEBUG` for details.
-
-### Zalo Personal (zalouser)
-
-1. Start the bridge: `cd bridges/zalo && npm run build && npm start`.
-2. Scan the QR code with Zalo on your phone (first run only).
-3. In agent Channels: enable Zalo Personal, set `bridgeUrl` (default `ws://localhost:3002`).
-4. Start the agent. Check logs for `Connected to Zalo Personal bridge`.
-5. Send a message to yourself or a group from the linked Zalo account. The bot should reply.
-6. If no reply: ensure bridge and agent run on the same host or `bridgeUrl` is reachable; check `allowFrom` and `group_policy`.
-
 ### Microsoft Teams
 
 1. Create an Azure Bot and set Messaging endpoint to `https://your-domain/api/webhooks/teams/{agent_id}`.

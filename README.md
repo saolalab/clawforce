@@ -80,7 +80,7 @@ Isolation at every layer:
 
 - **Easy-to-Use Agent Team Setup** — Our focus. Deploy from marketplace in 1 click; role-based templates, visual portal, minimal friction.
 - **Background Agents, No GUI Automation** — We do not support Computer Use or Browser Use. Use **MCP** (Model Context Protocol) instead.
-- **Best Practices** — Security first; use trusted software; internal MaaS; internal MCP & Skills Registry; approval gates for sensitive tools.
+- **Best Practices** — Security first; use trusted software; internal MaaS (MCP-as-a-Service); internal MCP & Skills Registry; approval gates for sensitive tools.
 
 See [Product Principles & Best Practices](https://saolalab.github.io/clawforce/guide/principles) in the docs.
 
