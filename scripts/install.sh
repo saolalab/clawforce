@@ -472,13 +472,24 @@ success "Image pulled"
 # ─────────────────────────────────────────────────────────────────────────────
 install_cli_wrapper() {
     info "Installing 'clawforce' CLI wrapper..."
-    local install_dir="$HOME/.local/bin"
-    local wrapper_path="$install_dir/clawforce"
 
     # Ensure we're in a valid directory (avoids "chdir: cannot access parent" when cwd is stale)
     cd "${TMPDIR:-/tmp}" 2>/dev/null || cd /tmp 2>/dev/null || true
 
-    mkdir -p "$install_dir"
+    # Pick an install directory the current user can write to
+    local install_dir
+    for _candidate in "$HOME/.local/bin" "$HOME/bin" "$HOME/.bin"; do
+        if mkdir -p "$_candidate" 2>/dev/null; then
+            install_dir="$_candidate"
+            break
+        fi
+    done
+    if [ -z "$install_dir" ]; then
+        warn "Could not create a writable bin directory under \$HOME. Skipping CLI wrapper."
+        return 1
+    fi
+
+    local wrapper_path="$install_dir/clawforce"
 
     local tmpfile
     tmpfile="$(mktemp)" || { warn "Could not create temp file. Skipping CLI wrapper."; return 1; }
