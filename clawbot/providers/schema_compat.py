@@ -34,8 +34,7 @@ def _sanitize_strict(schema: Any) -> Any:
     for combiner in ("anyOf", "oneOf"):
         if combiner in schema:
             options = [
-                o for o in schema[combiner]
-                if isinstance(o, dict) and o.get("type") != "null"
+                o for o in schema[combiner] if isinstance(o, dict) and o.get("type") != "null"
             ]
             chosen = options[0] if options else {"type": "string"}
             merged = {k: v for k, v in schema.items() if k not in _UNSUPPORTED_KEYS}
@@ -67,9 +66,7 @@ def _sanitize_strict(schema: Any) -> Any:
 
     # Recurse into properties
     if isinstance(result.get("properties"), dict):
-        result["properties"] = {
-            k: _sanitize_strict(v) for k, v in result["properties"].items()
-        }
+        result["properties"] = {k: _sanitize_strict(v) for k, v in result["properties"].items()}
 
     # Recurse into additionalProperties if it's a schema dict
     if isinstance(result.get("additionalProperties"), dict):
@@ -103,8 +100,10 @@ def sanitize_tools(
             result.append(tool)
             continue
         sanitized = _sanitize_strict(params)
-        result.append({
-            **tool,
-            "function": {**fn, "parameters": sanitized},
-        })
+        result.append(
+            {
+                **tool,
+                "function": {**fn, "parameters": sanitized},
+            }
+        )
     return result

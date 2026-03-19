@@ -133,6 +133,7 @@ def _parse_www_authenticate_resource_metadata(header: str) -> str:
       Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"
     """
     import re
+
     m = re.search(r'resource_metadata=["\']?([^\s"\'>,]+)', header, re.IGNORECASE)
     return m.group(1) if m else ""
 
@@ -157,7 +158,12 @@ def _classify_mcp_error(e: BaseException, cfg: Any) -> tuple[str, bool, str]:
             403: "forbidden — check API key or token",
             404: "endpoint not found — verify the URL",
         }
-        hint = hints.get(code, "server error — the remote MCP server may be down" if code >= 500 else "unexpected response")
+        hint = hints.get(
+            code,
+            "server error — the remote MCP server may be down"
+            if code >= 500
+            else "unexpected response",
+        )
         msg = f"HTTP {code}: {hint}" + (f" ({body})" if body else "")
         return msg, needs_auth, auth_url
 
@@ -173,11 +179,21 @@ def _classify_mcp_error(e: BaseException, cfg: Any) -> tuple[str, bool, str]:
 
     # stdio: process exited immediately → almost always missing env var / API key
     if cfg.command and ("connection closed" in lower or "eof" in lower or "broken pipe" in lower):
-        return f"process exited immediately — check required env vars (API keys): {err_msg}", True, ""
+        return (
+            f"process exited immediately — check required env vars (API keys): {err_msg}",
+            True,
+            "",
+        )
 
     # HTTP streamable: session terminated / cancelled during handshake
-    if cfg.url and ("session terminated" in lower or "cancelled" in lower or "cancel scope" in lower):
-        return f"session terminated during handshake — server may require auth headers: {err_msg}", True, ""
+    if cfg.url and (
+        "session terminated" in lower or "cancelled" in lower or "cancel scope" in lower
+    ):
+        return (
+            f"session terminated during handshake — server may require auth headers: {err_msg}",
+            True,
+            "",
+        )
 
     return err_msg, False, ""
 
@@ -241,7 +257,9 @@ async def connect_mcp_servers(
                 while current_task.cancelling() > cancel_count_before:
                     current_task.uncancel()
             err_msg, needs_auth, auth_url = _classify_mcp_error(e, cfg)
-            statuses[name] = MCPServerStatus(name, "failed", error=err_msg, needs_auth=needs_auth, auth_url=auth_url)
+            statuses[name] = MCPServerStatus(
+                name, "failed", error=err_msg, needs_auth=needs_auth, auth_url=auth_url
+            )
             cmd_or_url = getattr(cfg, "command", "") or getattr(cfg, "url", "") or "?"
             logger.error(
                 "MCP server '{}': failed to connect: {} (command={})",

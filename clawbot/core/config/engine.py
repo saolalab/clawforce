@@ -130,7 +130,9 @@ class ConfigEngine:
         # Normalize camelCase → snake_case via schema round-trip before diffing/merging.
         plain = Config.model_validate(plain).model_dump(by_alias=False)
 
-        old_tools = (self._config.model_dump(by_alias=False) if self._config else {}).get("tools", {})
+        old_tools = (self._config.model_dump(by_alias=False) if self._config else {}).get(
+            "tools", {}
+        )
 
         # deep_merge re-adds deleted keys, so mcp_servers must be replaced atomically.
         # Stash the incoming value, merge everything else, then overwrite.
@@ -141,7 +143,11 @@ class ConfigEngine:
             raw.setdefault("tools", {})["mcp_servers"] = incoming_mcp
             self._config = Config.model_validate(raw)
 
-        to_save = {k: v for k, v in self._config.model_dump(by_alias=False).items() if k not in SECRET_SECTIONS}
+        to_save = {
+            k: v
+            for k, v in self._config.model_dump(by_alias=False).items()
+            if k not in SECRET_SECTIONS
+        }
         save_config(to_save, self._config_path)
 
         if self._agent_loop:
@@ -160,7 +166,9 @@ class ConfigEngine:
             if old_tools.get("software") != new_tools.get("software"):
                 if getattr(self._agent_loop, "software_management", None):
                     self._agent_loop.software_management.reload()
-                    logger.info("[config_engine] Software catalog reloaded (tools.software changed)")
+                    logger.info(
+                        "[config_engine] Software catalog reloaded (tools.software changed)"
+                    )
 
         return self.config_dict()
 
@@ -196,7 +204,9 @@ class ConfigEngine:
                     logger.info("[config_engine] MCP server {} status: {}", key, status.status)
                 elif new_cfg != running[key].model_dump(exclude_none=True):
                     # Config changed (e.g. stdio → HTTP after OAuth setup): reconnect.
-                    logger.info("[config_engine] Config changed for MCP server {}, re-registering", key)
+                    logger.info(
+                        "[config_engine] Config changed for MCP server {}, re-registering", key
+                    )
                     self._agent_loop.unregister_mcp_server(key)
                     status = await self._agent_loop.register_mcp_server(key, new_cfg)
                     logger.info("[config_engine] MCP server {} status: {}", key, status.status)

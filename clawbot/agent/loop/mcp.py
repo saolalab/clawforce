@@ -120,9 +120,7 @@ class McpManager:
         to_retry = {
             k: v
             for k, v in self._servers.items()
-            if k in self._status
-            and self._status[k].status in ("failed", "skipped")
-            and v.url
+            if k in self._status and self._status[k].status in ("failed", "skipped") and v.url
         }
         if not to_retry:
             return {}
@@ -190,9 +188,7 @@ class McpManager:
             if st is None:
                 lines.append(f"**{name}**: connecting...")
             elif st.status == "connected":
-                tool_names = [
-                    t for t in self.mcp.tool_names if t.startswith(f"mcp_{name}_")
-                ]
+                tool_names = [t for t in self.mcp.tool_names if t.startswith(f"mcp_{name}_")]
                 if tool_names:
                     lines.append(f"**{name}** ({len(tool_names)} tools):")
                     for t in tool_names:

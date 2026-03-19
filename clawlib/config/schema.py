@@ -264,9 +264,7 @@ class MCPServerConfig(Base):
     enabled_tools: list[str] | None = Field(default=None, alias="enabledTools")
     # Config schema for the server (populated at install time from the registry).
     # Standard JSON Schema fields drive the UI: type, format, enum, x-widget, etc.
-    config_schema: list[MCPConfigField] = Field(
-        default_factory=list, alias="configSchema"
-    )
+    config_schema: list[MCPConfigField] = Field(default_factory=list, alias="configSchema")
 
 
 class SoftwareEntry(Base):

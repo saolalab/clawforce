@@ -21,10 +21,15 @@ def _build_install_config(raw: dict | list) -> dict:
     return {}
 
 
-_FILE_HINTS = frozenset({
-    "credentials_file", "credentials_json", "oauth_credentials",
-    "google_credentials", "client_secret_file",
-})
+_FILE_HINTS = frozenset(
+    {
+        "credentials_file",
+        "credentials_json",
+        "oauth_credentials",
+        "google_credentials",
+        "client_secret_file",
+    }
+)
 
 
 def _infer_widget_for_field(name: str, entry: dict) -> str:
@@ -62,15 +67,19 @@ def _parse_config_schema(raw: dict | list) -> list[dict]:
                 continue
             seen.add(name)
             widget = _infer_widget_for_field(name, entry)
-            result.append({
-                "name": name,
-                "title": str(entry.get("label") or entry.get("title") or entry.get("name") or name),
-                "description": str(entry.get("description") or ""),
-                "type": "string",
-                "format": "password" if not widget else "",
-                "x-widget": widget,
-                "required": True,
-            })
+            result.append(
+                {
+                    "name": name,
+                    "title": str(
+                        entry.get("label") or entry.get("title") or entry.get("name") or name
+                    ),
+                    "description": str(entry.get("description") or ""),
+                    "type": "string",
+                    "format": "password" if not widget else "",
+                    "x-widget": widget,
+                    "required": True,
+                }
+            )
     return result
 
 

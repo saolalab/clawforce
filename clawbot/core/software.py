@@ -254,8 +254,6 @@ async def _run_post_install(
             raise RuntimeError(f"post_install exited with code {proc.returncode}")
 
 
-
-
 def _build_install_cmd(install_type: str, package: str) -> list[str]:
     """Return the shell command to install `package`, or [] for unknown install_type."""
     if install_type == "npm":
@@ -294,15 +292,22 @@ async def _run_install_with_retry(
         except asyncio.TimeoutError:
             if proc and proc.returncode is None:
                 proc.kill()
-            logger.warning("Timed out reinstalling '%s' (attempt %d/%d)", key, attempt, max_attempts)
+            logger.warning(
+                "Timed out reinstalling '%s' (attempt %d/%d)", key, attempt, max_attempts
+            )
         except Exception as e:
-            logger.warning("Error reinstalling '%s' (attempt %d/%d): %s", key, attempt, max_attempts, e)
+            logger.warning(
+                "Error reinstalling '%s' (attempt %d/%d): %s", key, attempt, max_attempts, e
+            )
         else:
             if proc and proc.returncode == 0:
                 return True
             logger.warning(
                 "Reinstall of '%s' exited %s (attempt %d/%d)",
-                key, proc.returncode if proc else "?", attempt, max_attempts,
+                key,
+                proc.returncode if proc else "?",
+                attempt,
+                max_attempts,
             )
 
         if attempt < max_attempts:
