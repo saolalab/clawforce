@@ -2,12 +2,6 @@
 
 This document defines product terms so that design and documentation stay consistent across the control plane and worker runtime.
 
-## Mental model
-
-- **Control plane** (clawforce): API, auth, scheduling, and state.
-- **Data plane / workload runtime** (clawbot): The process or container that runs one agent.
-- **Agent** is the logical unit (spec + identity); the **running instance** is the workload (one process or container per agent).
-
 ## Term mapping
 
 | Product term | Definition |
@@ -40,15 +34,6 @@ Plan status is separate: `draft` → `active` → `paused` | `completed`.
 ## Plan vs external systems
 
 External systems (GitHub Projects, Jira) remain the source of truth for their data. Plan is the orchestrator where the coordinator and agents record and orchestrate work. Agents perform any sync; Plan stores the coordination view. The coordinator decides when each agent starts working; not all agents need to be active at once.
-
-## Control plane vs worker (data plane)
-
-- **Control plane** never runs the agent loop or tools; it only:
-  - Stores agent/team/plan data
-  - Starts/stops instances via the pool backend
-  - Proxies WebSocket and API requests to the running instance
-  - Serves the dashboard and REST API
-- **Worker** (clawbot) runs exactly one agent: LLM loop, tools, channels, heartbeat. It connects **to** the control plane and does not accept inbound HTTP from users; all user/operator traffic goes through the control plane.
 
 ## Naming conventions in code and config
 
