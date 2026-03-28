@@ -104,7 +104,7 @@ export function ModelProviderSection({
     setOauthAccountId(null);
     setOauthPending(false);
     if (pollRef.current !== null) { clearInterval(pollRef.current); pollRef.current = null; }
-    api.providers.oauthStatus(selectedProvider)
+    api.providers.oauthStatus(selectedProvider, agentId)
       .then((r) => {
         setOauthAuthorized(r.authorized);
         setOauthAccountId(r.account_id ?? null);
@@ -116,7 +116,7 @@ export function ModelProviderSection({
     if (pollRef.current !== null) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const r = await api.providers.oauthStatus(provider);
+        const r = await api.providers.oauthStatus(provider, agentId);
         if (r.authorized) {
           setOauthAuthorized(true);
           setOauthAccountId(r.account_id ?? null);
@@ -132,13 +132,21 @@ export function ModelProviderSection({
     setOauthPending(false);
   }
 
-  // Load model list once OAuth provider is authorized
+  // Load model list once OAuth provider is authorized; auto-select first model if none chosen
   useEffect(() => {
     if (!providerDef?.oauth || !oauthAuthorized) return;
     setLoadingModels(true);
     setModelError("");
     api.providers.listModels(selectedProvider, "", "")
-      .then((r) => setModels(r.models))
+      .then((r) => {
+        setModels(r.models);
+        // Auto-select the first model when no model is set for this provider yet
+        const currentProviderPrefix = `${selectedProvider}/`;
+        const hasModel = model && model.startsWith(currentProviderPrefix);
+        if (!hasModel && r.models.length > 0) {
+          onModelChange(`${selectedProvider}/${r.models[0].id}`);
+        }
+      })
       .catch(() => {})
       .finally(() => setLoadingModels(false));
   }, [selectedProvider, oauthAuthorized, providerDef?.oauth]);
@@ -166,7 +174,7 @@ export function ModelProviderSection({
     setOauthError("");
     cancelPolling();
     try {
-      const r = await api.providers.oauthAuthorize(selectedProvider);
+      const r = await api.providers.oauthAuthorize(selectedProvider, agentId);
       window.open(r.auth_url, "_blank", "noopener,noreferrer");
       setOauthPending(true);
       startPolling(selectedProvider);

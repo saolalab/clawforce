@@ -1,7 +1,9 @@
 """Proxy endpoint to list models from LLM providers using a user-supplied API key."""
 
 import asyncio
+import json
 import os
+import time
 import urllib.parse
 
 import httpx
@@ -306,13 +308,15 @@ async def list_provider_models(
 @router.get("/api/providers/oauth/{provider}/status")
 async def oauth_status(
     provider: str,
+    agent_id: str = "",
     _: dict = Depends(get_current_user),
+    agent_config_store: AgentConfigStore = Depends(get_agent_config_store),
 ):
-    """Check whether a valid cached OAuth token exists for a provider.
+    """Check whether a valid OAuth token exists for a provider.
 
-    This is non-interactive — it never opens a browser. Returns
-    ``{"authorized": true}`` if a cached (and refreshable) token exists,
-    ``{"authorized": false}`` otherwise.
+    When *agent_id* is provided the check looks at the token stored in that
+    agent's config (same place API keys live).  Otherwise falls back to the
+    global FileTokenStorage used by local/direct runs.
     """
     oauth_cfg = OAUTH_PROVIDER_CONFIGS.get(provider)
     if not oauth_cfg:
@@ -320,6 +324,26 @@ async def oauth_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown OAuth provider: {provider}",
         )
+
+    if agent_id:
+        config = agent_config_store.get_config(agent_id) or {}
+        token_json = (config.get("providers") or {}).get(provider, {}).get("api_key", "")
+        if token_json:
+            try:
+                data = json.loads(token_json)
+                token = OAuthToken(
+                    access=data["access"],
+                    refresh=data["refresh"],
+                    expires=int(data["expires"]),
+                    account_id=data.get("account_id"),
+                )
+                now_ms = int(time.time() * 1000)
+                if token.expires - now_ms > 0:
+                    return {"provider": provider, "authorized": True, "account_id": token.account_id}
+            except Exception:
+                pass
+        return {"provider": provider, "authorized": False, "account_id": None}
+
     try:
         token = await asyncio.to_thread(get_token, oauth_cfg)
         return {"provider": provider, "authorized": True, "account_id": token.account_id}
@@ -567,11 +591,17 @@ async def _run_oauth_flow(
     return token
 
 
+class OAuthAuthorizeRequest(BaseModel):
+    agent_id: str = ""
+
+
 @router.post("/api/providers/oauth/{provider}/authorize")
 async def oauth_authorize(
     provider: str,
+    body: OAuthAuthorizeRequest,
     request: Request,
     _: dict = Depends(get_current_user),
+    agent_config_store: AgentConfigStore = Depends(get_agent_config_store),
 ):
     """Start an OAuth browser login flow for a provider.
 
@@ -596,12 +626,31 @@ async def oauth_authorize(
     loop = asyncio.get_event_loop()
     url_ready: asyncio.Future[str] = loop.create_future()
 
+    agent_id = body.agent_id
+
     async def _bg() -> None:
         try:
             tok = await _run_oauth_flow(oauth_cfg, url_ready, notify_url=notify_url)
-            if provider == "github_copilot":
-                os.environ["GITHUB_COPILOT_TOKEN"] = tok.access
             logger.info("OAuth [{}] authorized: {}", provider, tok.account_id)
+
+            # Persist token JSON in the agent's config so inject_to_env() delivers
+            # it as CLAWFORCE_OPENAI_OAUTH_TOKEN — same pipeline as API keys.
+            if agent_id:
+                token_json = json.dumps({
+                    "access": tok.access,
+                    "refresh": tok.refresh,
+                    "expires": tok.expires,
+                    "account_id": tok.account_id,
+                })
+                providers_update: dict = {
+                    provider: {"api_key": token_json},
+                }
+                # chatgpt and openai_codex share the same OpenAI login — store in both
+                sibling = {"chatgpt": "openai_codex", "openai_codex": "chatgpt"}.get(provider)
+                if sibling:
+                    providers_update[sibling] = {"api_key": token_json}
+                agent_config_store.update_config(agent_id, {"providers": providers_update})
+                logger.info("OAuth [{}] token saved to agent {}", provider, agent_id)
         except Exception as exc:
             logger.warning("OAuth [{}] error: {}", provider, exc)
             if not url_ready.done():

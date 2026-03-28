@@ -176,7 +176,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         name="openai_codex",
         keywords=("openai-codex", "codex"),
-        env_key="",  # OAuth-based, no API key
+        env_key="OPENAI_CODEX_OAUTH_TOKEN",
         display_name="OpenAI Codex",
         litellm_prefix="",  # Not routed through LiteLLM
         skip_prefixes=(),
@@ -194,7 +194,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         name="chatgpt",
         keywords=("chatgpt",),
-        env_key="",  # OAuth-based, no API key
+        env_key="CHATGPT_OAUTH_TOKEN",
         display_name="ChatGPT Plus",
         litellm_prefix="",  # Not routed through LiteLLM
         skip_prefixes=(),

@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 
 from loguru import logger
-from oauth_cli_kit import OPENAI_CODEX_PROVIDER
-from oauth_cli_kit import get_token as _get_token
 
 from clawbot.providers.base import LLMResponse
 from clawbot.providers.openai_codex_provider import (
@@ -14,6 +12,7 @@ from clawbot.providers.openai_codex_provider import (
     _build_headers,
     _convert_messages,
     _convert_tools,
+    _get_agent_oauth_token,
     _request_codex,
 )
 
@@ -43,7 +42,7 @@ class ChatGPTProvider(OpenAICodexProvider):
         model = model or self.default_model
         system_prompt, input_items = _convert_messages(messages)
 
-        token = await asyncio.to_thread(_get_token, OPENAI_CODEX_PROVIDER)
+        token = await asyncio.to_thread(_get_agent_oauth_token, "CHATGPT_OAUTH_TOKEN")
         headers = _build_headers(token.account_id, token.access)
 
         body = {

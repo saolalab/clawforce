@@ -5,16 +5,46 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
+import time
 from typing import Any, AsyncGenerator
 
 import httpx
 from loguru import logger
+from oauth_cli_kit import OPENAI_CODEX_PROVIDER, OAuthToken
 from oauth_cli_kit import get_token as get_codex_token
+from oauth_cli_kit.flow import _refresh_token
 
 from clawbot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
 DEFAULT_ORIGINATOR = "clawbot"
+
+def _get_agent_oauth_token(env_var: str = "OPENAI_CODEX_OAUTH_TOKEN") -> OAuthToken:
+    """Return an OAuth token for OpenAI, preferring the per-agent env var.
+
+    Agent containers receive the token as a JSON string injected from the
+    agent's stored provider config under the env var declared in the registry
+    (e.g. ``OPENAI_CODEX_OAUTH_TOKEN``, ``CHATGPT_OAUTH_TOKEN``), exactly like
+    any other API key.  Falls back to the global FileTokenStorage for local runs.
+    """
+    env_val = os.environ.get(env_var)
+    if env_val:
+        try:
+            data = json.loads(env_val)
+            token = OAuthToken(
+                access=data["access"],
+                refresh=data["refresh"],
+                expires=int(data["expires"]),
+                account_id=data.get("account_id"),
+            )
+            now_ms = int(time.time() * 1000)
+            if token.expires - now_ms <= 60 * 1000:
+                token = _refresh_token(token.refresh, OPENAI_CODEX_PROVIDER)
+            return token
+        except Exception:
+            pass
+    return get_codex_token()
 
 
 class OpenAICodexProvider(LLMProvider):
@@ -35,7 +65,7 @@ class OpenAICodexProvider(LLMProvider):
         model = model or self.default_model
         system_prompt, input_items = _convert_messages(messages)
 
-        token = await asyncio.to_thread(get_codex_token)
+        token = await asyncio.to_thread(_get_agent_oauth_token)
         headers = _build_headers(token.account_id, token.access)
 
         body: dict[str, Any] = {
