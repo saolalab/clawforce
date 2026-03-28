@@ -139,13 +139,15 @@ curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/ins
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --engine podman
 ```
 
-**Windows (PowerShell as Administrator):**
+**Windows:**
 ```powershell
 irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 | iex
 
 # Or with Podman:
 .\install.ps1 -Engine podman
 ```
+
+> **Note:** Administrator privileges are only required if Docker Desktop or Podman is not yet installed (the script will install it via `winget`). If either is already installed, a regular PowerShell session works fine.
 
 After installation, open **http://localhost:8080** and log in with `admin`/`admin`.
 
@@ -161,14 +163,26 @@ After installation, open **http://localhost:8080** and log in with `admin`/`admi
 # Custom port and admin password
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --port 9000 --admin-pass mypassword
 
-# Use Podman instead of Docker
-curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --engine podman
+# Custom port and admin password (Podman)
+curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --engine podman --port 9000 --admin-pass mypassword
 
 # Use process runtime instead of container isolation
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --process-runtime
 
-# Uninstall
+# Uninstall (Docker)
 curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --uninstall
+
+# Uninstall (Podman)
+curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --engine podman --uninstall
+```
+
+**Windows:**
+```powershell
+# Uninstall (Docker)
+.\install.ps1 -Uninstall
+
+# Uninstall (Podman)
+.\install.ps1 -Engine podman -Uninstall
 ```
 
 ### Run with Docker or Podman
@@ -185,11 +199,19 @@ docker run -d -p 8080:8080 \
 ```
 
 **Podman:**
+
+> **Linux prerequisite:** Enable the Podman socket before running:
+> ```bash
+> systemctl --user start podman.socket
+> systemctl --user enable podman.socket  # persist across reboots
+> ```
+
 ```bash
 podman run -d -p 8080:8080 \
   -v $XDG_RUNTIME_DIR/podman/podman.sock:/var/run/docker.sock \
   -v $HOME/.clawforce-data:/data \
   -e AGENT_STORAGE_HOST_PATH=$HOME/.clawforce-data \
+  -e CONTAINER_ENGINE=podman \
   ghcr.io/saolalab/clawforce:latest
 ```
 
@@ -238,7 +260,9 @@ make backend   # Terminal 1: API at http://localhost:8080
 make frontend  # Terminal 2: Vite at http://localhost:5173
 ```
 
-Build from source (works with `docker` or `podman`):
+Build from source:
+
+**Docker:**
 ```bash
 docker build -t clawforce:latest -f deploy/Dockerfile .
 docker run -d -p 8080:8080 \
@@ -246,6 +270,18 @@ docker run -d -p 8080:8080 \
   -v $HOME/.clawforce-data:/data \
   -e AGENT_STORAGE_HOST_PATH=$HOME/.clawforce-data \
   -e AGENT_IMAGE=clawforce:latest \
+  clawforce:latest
+```
+
+**Podman:**
+```bash
+podman build -t clawforce:latest -f deploy/Dockerfile .
+podman run -d -p 8080:8080 \
+  -v $XDG_RUNTIME_DIR/podman/podman.sock:/var/run/docker.sock \
+  -v $HOME/.clawforce-data:/data \
+  -e AGENT_STORAGE_HOST_PATH=$HOME/.clawforce-data \
+  -e AGENT_IMAGE=clawforce:latest \
+  -e CONTAINER_ENGINE=podman \
   clawforce:latest
 ```
 
