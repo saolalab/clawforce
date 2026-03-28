@@ -16,11 +16,11 @@ OAUTH_PORT
     Port to listen on (default: 1455).
 """
 
+import http.client
 import http.server
 import json
 import os
 import urllib.parse
-import urllib.request
 
 NOTIFY_URL: str = os.environ.get("OAUTH_NOTIFY_URL", "")
 PORT: int = int(os.environ.get("OAUTH_PORT", "1455"))
@@ -99,14 +99,18 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
 
         if code and state and NOTIFY_URL:
             try:
+                parsed_notify = urllib.parse.urlparse(NOTIFY_URL)
+                host = parsed_notify.netloc
+                path = parsed_notify.path or "/"
                 payload = json.dumps({"code": code, "state": state}).encode()
-                req = urllib.request.Request(
-                    NOTIFY_URL,
-                    data=payload,
+                conn = http.client.HTTPConnection(host, timeout=10)
+                conn.request(
+                    "POST",
+                    path,
+                    body=payload,
                     headers={"Content-Type": "application/json"},
-                    method="POST",
                 )
-                urllib.request.urlopen(req, timeout=10)
+                conn.getresponse()
             except Exception:
                 pass
 

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
+from loguru import logger
 from oauth_cli_kit import OPENAI_CODEX_PROVIDER
 from oauth_cli_kit import get_token as _get_token
 
+from clawbot.providers.base import LLMResponse
 from clawbot.providers.openai_codex_provider import (
     OpenAICodexProvider,
     _build_headers,
@@ -58,9 +60,6 @@ class ChatGPTProvider(OpenAICodexProvider):
 
         if tools:
             body["tools"] = _convert_tools(tools)
-
-        from clawbot.providers.base import LLMResponse
-        from loguru import logger
 
         try:
             try:

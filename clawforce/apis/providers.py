@@ -5,6 +5,12 @@ import os
 import urllib.parse
 
 import httpx
+
+try:
+    import docker as _docker_module  # type: ignore[import]
+except ImportError:
+    _docker_module = None  # type: ignore[assignment]
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from loguru import logger
 from oauth_cli_kit import OPENAI_CODEX_PROVIDER, OAuthProviderConfig, OAuthToken, get_token
@@ -363,9 +369,10 @@ async def oauth_internal_deliver(body: _OAuthDeliverRequest):
 
 def _get_docker_client():
     """Return a Docker client if the daemon socket is accessible, else None."""
+    if _docker_module is None:
+        return None
     try:
-        import docker  # type: ignore[import]
-        client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
+        client = _docker_module.DockerClient(base_url="unix:///var/run/docker.sock")
         client.ping()
         return client
     except Exception:
