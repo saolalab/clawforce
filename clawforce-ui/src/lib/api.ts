@@ -346,7 +346,7 @@ export const api = {
         `/providers/oauth/${encodeURIComponent(provider)}/status`,
       ),
     oauthAuthorize: (provider: string) =>
-      post<{ authorized: boolean; account_id?: string }>(
+      post<{ auth_url: string }>(
         `/providers/oauth/${encodeURIComponent(provider)}/authorize`,
         {},
       ),

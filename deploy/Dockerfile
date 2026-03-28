@@ -1,8 +1,11 @@
 # All-in-one Clawforce image: SPA + API; same image is used as worker when using Docker runtime.
 # Build: docker build -t clawforce:latest -f deploy/Dockerfile .
 #
-# Run (mount socket so the container can talk to the Docker daemon):
+# Run (mount socket so the container can spawn agent and OAuth callback containers):
 #   docker run -d -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v clawforce-data:/data clawforce:latest
+#
+# OAuth callback ports (e.g. 1455 for ChatGPT/Codex) are handled by short-lived sibling containers
+# spawned on demand — no extra -p flag needed in this run command.
 
 # Stage 1: Build React SPA (cache-friendly: deps first, then source)
 FROM node:20-slim AS frontend
@@ -64,6 +67,9 @@ RUN chmod +x /app/deploy/entrypoint.sh
 # Runtime config
 ENV ADMIN_STORAGE_ROOT=/data
 ENV ADMIN_RUNTIME_BACKEND=docker
+# Redirect XDG user-data dir under /data so OAuth tokens (and any other
+# platformdirs-managed state) survive container recreation.
+ENV XDG_DATA_HOME=/data/.local/share
 
 # Default admin credentials for first-run setup (set in entrypoint to avoid ENV secret warning).
 # Override for production: docker run -e ADMIN_SETUP_USERNAME=admin -e ADMIN_SETUP_PASSWORD=your-secure-password ...
