@@ -200,6 +200,7 @@ class ProvidersConfig(Base):
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)
     openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)
+    chatgpt: ProviderConfig = Field(default_factory=ProviderConfig)
 
 
 class GatewayConfig(Base):

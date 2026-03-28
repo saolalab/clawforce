@@ -48,6 +48,7 @@ export function ModelProviderSection({
       setApiKey(savedKey);
     }
   }, [savedKey]);
+
   const [models, setModels] = useState<FetchedModel[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState("");
@@ -56,8 +57,14 @@ export function ModelProviderSection({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Non-OAuth providers that need API keys
+  // OAuth state
+  const [oauthAuthorized, setOauthAuthorized] = useState<boolean | null>(null);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthError, setOauthError] = useState("");
+  const [oauthAccountId, setOauthAccountId] = useState<string | null>(null);
+
   const providerDef = PROVIDER_DEFS.find((p) => p.field === selectedProvider);
+  // Non-OAuth providers need API keys
   const needsKey = providerDef && !providerDef.oauth;
 
   // Close dropdown on outside click
@@ -73,9 +80,40 @@ export function ModelProviderSection({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [modelDropdownOpen]);
 
-  // Auto-fetch models when provider changes (static providers, or if there's a saved key)
+  // Check OAuth status when an OAuth provider is selected
+  useEffect(() => {
+    if (!providerDef?.oauth) {
+      setOauthAuthorized(null);
+      setOauthError("");
+      setOauthAccountId(null);
+      return;
+    }
+    setOauthAuthorized(null);
+    setOauthError("");
+    setOauthAccountId(null);
+    api.providers.oauthStatus(selectedProvider)
+      .then((r) => {
+        setOauthAuthorized(r.authorized);
+        setOauthAccountId(r.account_id ?? null);
+      })
+      .catch(() => setOauthAuthorized(false));
+  }, [selectedProvider, providerDef?.oauth]);
+
+  // Load model list once OAuth provider is authorized
+  useEffect(() => {
+    if (!providerDef?.oauth || !oauthAuthorized) return;
+    setLoadingModels(true);
+    setModelError("");
+    api.providers.listModels(selectedProvider, "", "")
+      .then((r) => setModels(r.models))
+      .catch(() => {})
+      .finally(() => setLoadingModels(false));
+  }, [selectedProvider, oauthAuthorized, providerDef?.oauth]);
+
+  // Auto-fetch models when provider changes (static/API-key providers only)
   useEffect(() => {
     if (!selectedProvider) { setModels([]); return; }
+    if (providerDef?.oauth) return; // handled by the OAuth effect above
     const isStatic = ["bedrock", "azure"].includes(selectedProvider);
     const hasSavedKey = !!(savedKey && savedKey.length > 0);
     if (isStatic || hasSavedKey) {
@@ -88,7 +126,23 @@ export function ModelProviderSection({
         .catch(() => {})
         .finally(() => setLoadingModels(false));
     }
-  }, [selectedProvider, agentId, savedKey]);
+  }, [selectedProvider, agentId, savedKey, providerDef?.oauth]);
+
+  async function handleOAuthAuthorize() {
+    setOauthLoading(true);
+    setOauthError("");
+    try {
+      const r = await api.providers.oauthAuthorize(selectedProvider);
+      if (r.authorized) {
+        setOauthAuthorized(true);
+        setOauthAccountId(r.account_id ?? null);
+      }
+    } catch (err) {
+      setOauthError((err instanceof Error ? err.message : String(err)).replace(/^API \d+: /, ""));
+    } finally {
+      setOauthLoading(false);
+    }
+  }
 
   function doFetch() {
     if (!selectedProvider) return;
@@ -129,6 +183,7 @@ export function ModelProviderSection({
     if (needsKey && apiKey) {
       onProviderKeyChange(selectedProvider, apiKey);
     }
+    // OAuth providers: no key to propagate — credentials live in the OS credential store
     onModelChange(fullModel);
     setModelDropdownOpen(false);
     setModelSearch("");
@@ -149,9 +204,9 @@ export function ModelProviderSection({
 
   return (
     <div className="space-y-2.5">
-      {/* Row 1: Provider + API Key */}
+      {/* Row 1: Provider + API Key / OAuth */}
       <div className="flex gap-4 flex-wrap items-end">
-        <div className={needsKey ? "min-w-[140px]" : "flex-1 min-w-[160px]"}>
+        <div className={(needsKey || providerDef?.oauth) ? "min-w-[140px]" : "flex-1 min-w-[160px]"}>
           <label className={css.label}>Provider</label>
           <select
             className={`${css.input} w-full`}
@@ -159,11 +214,53 @@ export function ModelProviderSection({
             onChange={(e) => handleProviderChange(e.target.value)}
           >
             <option value="">Select a provider…</option>
-            {PROVIDER_DEFS.filter((p) => !p.oauth).map((p) => (
+            {PROVIDER_DEFS.map((p) => (
               <option key={p.field} value={p.field}>{p.label}</option>
             ))}
           </select>
         </div>
+
+        {/* OAuth authorization UI */}
+        {selectedProvider && providerDef?.oauth && (
+          <div className="flex-1 min-w-[200px]">
+            <label className={css.label}>Authorization</label>
+            {oauthAuthorized === null && (
+              <p className="text-xs text-claude-text-muted">Checking status…</p>
+            )}
+            {oauthAuthorized === true && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block shrink-0" />
+                  Connected{oauthAccountId ? ` · ${oauthAccountId.slice(0, 8)}…` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleOAuthAuthorize}
+                  disabled={oauthLoading}
+                  className={`${css.btn} text-xs text-claude-text-muted ring-1 ring-claude-border hover:bg-claude-surface disabled:opacity-40`}
+                >
+                  Re-authorize
+                </button>
+              </div>
+            )}
+            {oauthAuthorized === false && (
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleOAuthAuthorize}
+                  disabled={oauthLoading}
+                  className={`${css.btn} text-claude-accent ring-1 ring-claude-accent/30 hover:bg-claude-accent/5 disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  {oauthLoading ? "Authorizing…" : `Connect ${providerDef.label}`}
+                </button>
+                {oauthError && <p className="text-xs text-red-500">{oauthError}</p>}
+                <p className="text-[10px] text-claude-text-muted">Opens a browser window to authorize</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* API key input for non-OAuth providers */}
         {selectedProvider && needsKey && (
           <div className="flex-1 min-w-[200px]">
             <label className={css.label}>API Key</label>
@@ -203,7 +300,11 @@ export function ModelProviderSection({
                 {loadingModels
                   ? "Loading models…"
                   : models.length === 0
-                    ? (needsKey ? (savedKey ? "Click Fetch models to load" : "Enter API key and fetch models") : "Select a provider first")
+                    ? (needsKey
+                        ? (savedKey ? "Click Fetch models to load" : "Enter API key and fetch models")
+                        : providerDef?.oauth
+                          ? (oauthAuthorized ? "Select a model…" : "Connect first to browse models")
+                          : "Select a provider first")
                     : currentModelDisplay || "Select a model…"}
               </span>
               <svg className="h-4 w-4 text-claude-text-muted flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

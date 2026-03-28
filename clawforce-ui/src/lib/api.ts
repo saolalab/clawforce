@@ -341,6 +341,15 @@ export const api = {
         "/providers/models",
         { provider, api_key: apiKey, agent_id: agentId || "" },
       ),
+    oauthStatus: (provider: string) =>
+      request<{ provider: string; authorized: boolean; account_id?: string }>(
+        `/providers/oauth/${encodeURIComponent(provider)}/status`,
+      ),
+    oauthAuthorize: (provider: string) =>
+      post<{ authorized: boolean; account_id?: string }>(
+        `/providers/oauth/${encodeURIComponent(provider)}/authorize`,
+        {},
+      ),
   },
   admin: {
     getSettings: () =>

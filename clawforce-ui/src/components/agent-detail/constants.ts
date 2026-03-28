@@ -148,6 +148,7 @@ export const PROVIDER_DEFS: ProviderDef[] = [
   { field: "vllm", label: "vLLM / Local", keywords: ["vllm"] },
   { field: "openai_codex", label: "OpenAI Codex", keywords: ["openai-codex", "codex"], oauth: true },
   { field: "github_copilot", label: "GitHub Copilot", keywords: ["github_copilot", "copilot"], oauth: true },
+  { field: "chatgpt", label: "ChatGPT Plus", keywords: ["chatgpt"], oauth: true },
 ];
 
 export const SECURITY_PRESETS = {
