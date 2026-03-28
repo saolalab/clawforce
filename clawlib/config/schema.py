@@ -192,7 +192,6 @@ class ProvidersConfig(Base):
     groq: ProviderConfig = Field(default_factory=ProviderConfig)
     zhipu: ProviderConfig = Field(default_factory=ProviderConfig)
     dashscope: ProviderConfig = Field(default_factory=ProviderConfig)
-    vllm: ProviderConfig = Field(default_factory=ProviderConfig)
     gemini: ProviderConfig = Field(default_factory=ProviderConfig)
     moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
     minimax: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -200,6 +199,7 @@ class ProvidersConfig(Base):
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)
     openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)
+    chatgpt: ProviderConfig = Field(default_factory=ProviderConfig)
 
 
 class GatewayConfig(Base):

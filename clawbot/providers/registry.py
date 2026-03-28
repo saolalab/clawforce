@@ -176,7 +176,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         name="openai_codex",
         keywords=("openai-codex", "codex"),
-        env_key="",  # OAuth-based, no API key
+        env_key="OPENAI_CODEX_OAUTH_TOKEN",
         display_name="OpenAI Codex",
         litellm_prefix="",  # Not routed through LiteLLM
         skip_prefixes=(),
@@ -189,6 +189,24 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         strip_model_prefix=False,
         model_overrides=(),
         is_oauth=True,  # OAuth-based authentication
+    ),
+    # ChatGPT Plus: uses OAuth (same OpenAI login as Codex), not API key.
+    ProviderSpec(
+        name="chatgpt",
+        keywords=("chatgpt",),
+        env_key="CHATGPT_OAUTH_TOKEN",
+        display_name="ChatGPT Plus",
+        litellm_prefix="",  # Not routed through LiteLLM
+        skip_prefixes=(),
+        env_extras=(),
+        is_gateway=False,
+        is_local=False,
+        detect_by_key_prefix="",
+        detect_by_base_keyword="",
+        default_api_base="https://chatgpt.com/backend-api",
+        strip_model_prefix=False,
+        model_overrides=(),
+        is_oauth=True,  # OAuth-based authentication (shared with OpenAI Codex)
     ),
     # Github Copilot: uses OAuth, not API key.
     ProviderSpec(

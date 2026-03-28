@@ -128,6 +128,10 @@ export const CHANNEL_DEFS: { key: string; label: string; icon: React.ReactNode; 
 ];
 
 export const PROVIDER_DEFS: ProviderDef[] = [
+  // Subscription-based (OAuth) — no API key required
+  { field: "chatgpt", label: "ChatGPT Plus", keywords: ["chatgpt"], oauth: true },
+  { field: "openai_codex", label: "OpenAI Codex", keywords: ["openai-codex", "codex"], oauth: true },
+  // API key / token providers
   { field: "anthropic", label: "Anthropic", keywords: ["anthropic", "claude"] },
   { field: "openai", label: "OpenAI", keywords: ["openai", "gpt", "o1", "o3", "o4"] },
   { field: "openrouter", label: "OpenRouter", keywords: ["openrouter"] },
@@ -139,6 +143,8 @@ export const PROVIDER_DEFS: ProviderDef[] = [
   { field: "together", label: "Together AI", keywords: ["together"] },
   { field: "bedrock", label: "AWS Bedrock", keywords: ["bedrock"] },
   { field: "azure", label: "Azure OpenAI", keywords: ["azure"] },
+  // GitHub Copilot — paste token from `gh auth token` or VS Code Copilot extension
+  { field: "github_copilot", label: "GitHub Copilot", keywords: ["github_copilot", "copilot"] },
   { field: "moonshot", label: "Moonshot / Kimi", keywords: ["moonshot", "kimi"] },
   { field: "dashscope", label: "DashScope / Qwen", keywords: ["dashscope", "qwen"] },
   { field: "zhipu", label: "Zhipu AI", keywords: ["zhipu", "glm"] },
@@ -146,8 +152,6 @@ export const PROVIDER_DEFS: ProviderDef[] = [
   { field: "aihubmix", label: "AiHubMix", keywords: ["aihubmix"] },
   { field: "siliconflow", label: "SiliconFlow", keywords: ["siliconflow"] },
   { field: "vllm", label: "vLLM / Local", keywords: ["vllm"] },
-  { field: "openai_codex", label: "OpenAI Codex", keywords: ["openai-codex", "codex"], oauth: true },
-  { field: "github_copilot", label: "GitHub Copilot", keywords: ["github_copilot", "copilot"], oauth: true },
 ];
 
 export const SECURITY_PRESETS = {

@@ -190,7 +190,6 @@ class TestProvidersConfig:
         assert isinstance(cfg.gemini, ProviderConfig)
         assert isinstance(cfg.zhipu, ProviderConfig)
         assert isinstance(cfg.dashscope, ProviderConfig)
-        assert isinstance(cfg.vllm, ProviderConfig)
         assert isinstance(cfg.moonshot, ProviderConfig)
         assert isinstance(cfg.minimax, ProviderConfig)
         assert isinstance(cfg.aihubmix, ProviderConfig)

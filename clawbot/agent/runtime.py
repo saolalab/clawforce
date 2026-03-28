@@ -5,6 +5,7 @@ from typing import Any
 
 from clawbot.core.config.loader import load_config
 from clawbot.core.config.schema import Config
+from clawbot.providers.chatgpt_provider import ChatGPTProvider
 from clawbot.providers.custom_provider import CustomProvider
 from clawbot.providers.litellm_provider import LiteLLMProvider
 from clawbot.providers.openai_codex_provider import OpenAICodexProvider
@@ -28,6 +29,9 @@ def make_provider(config: Config) -> Any:
 
     if provider_name == "openai_codex" or (model or "").startswith("openai-codex/"):
         return OpenAICodexProvider(default_model=model)
+
+    if provider_name == "chatgpt" or (model or "").startswith("chatgpt/"):
+        return ChatGPTProvider(default_model=model)
 
     if provider_name == "custom":
         return CustomProvider(
