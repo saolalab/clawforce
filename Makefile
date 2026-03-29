@@ -4,11 +4,12 @@
 # Docs preview:  make docs       (VitePress at http://localhost:4173/clawforce/)
 # Production:    make install && clawforce setup && clawforce serve
 # Container:     make container  (uses docker by default, set ENGINE=podman for podman)
+# Stop/cleanup:  make container-stop  (stops and removes all clawforce + agent containers)
 
 # Container engine: docker (default) or podman
 ENGINE ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
 
-.PHONY: install dev backend frontend docs docs-dev setup build test lint lint-fix format clean user-list user-create user-update user-set-password container container-nobuild container-clean container-logs
+.PHONY: install dev backend frontend docs docs-dev setup build test lint lint-fix format clean user-list user-create user-update user-set-password container container-nobuild container-clean container-logs container-stop
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Installation
@@ -107,6 +108,14 @@ container-clean:
 
 container-logs:
 	$(ENGINE) logs -f clawforce
+
+container-stop:
+	@echo "Stopping and removing clawforce containers..."
+	-@AGENTS=$$($(ENGINE) ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true); \
+	  [ -n "$$AGENTS" ] && echo "$$AGENTS" | xargs $(ENGINE) rm -f 2>/dev/null || true
+	-@$(ENGINE) stop clawforce 2>/dev/null || true
+	-@$(ENGINE) rm -f clawforce 2>/dev/null || true
+	@echo "Done."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cleanup
