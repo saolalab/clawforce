@@ -20,6 +20,7 @@ from clawbot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
 DEFAULT_ORIGINATOR = "clawbot"
 
+
 def _get_agent_oauth_token(env_var: str = "OPENAI_CODEX_OAUTH_TOKEN") -> OAuthToken:
     """Return an OAuth token for OpenAI, preferring the per-agent env var.
 

@@ -339,7 +339,11 @@ async def oauth_status(
                 )
                 now_ms = int(time.time() * 1000)
                 if token.expires - now_ms > 0:
-                    return {"provider": provider, "authorized": True, "account_id": token.account_id}
+                    return {
+                        "provider": provider,
+                        "authorized": True,
+                        "account_id": token.account_id,
+                    }
             except Exception:
                 pass
         return {"provider": provider, "authorized": False, "account_id": None}
@@ -362,6 +366,7 @@ _active_oauth_flows: dict[str, tuple["asyncio.Future[str]", str]] = {}
 # ---------------------------------------------------------------------------
 # Internal deliver endpoint — called by the callback container, not the browser
 # ---------------------------------------------------------------------------
+
 
 class _OAuthDeliverRequest(BaseModel):
     code: str
@@ -390,6 +395,7 @@ async def oauth_internal_deliver(body: _OAuthDeliverRequest):
 # ---------------------------------------------------------------------------
 # Docker callback container helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_docker_client():
     """Return a Docker client if the daemon socket is accessible, else None."""
@@ -463,7 +469,9 @@ def _spawn_callback_container(
             container = docker_client.containers.run(**kwargs)
             logger.info(
                 "OAuth callback container started: {} (port {}, notify→{})",
-                name, port, effective_url,
+                name,
+                port,
+                effective_url,
             )
             return container
         except Exception as exc:
@@ -503,6 +511,7 @@ def _build_notify_url(request: Request) -> str:
 # ---------------------------------------------------------------------------
 # Core PKCE flow
 # ---------------------------------------------------------------------------
+
 
 async def _run_oauth_flow(
     oauth_cfg: OAuthProviderConfig,
@@ -636,12 +645,14 @@ async def oauth_authorize(
             # Persist token JSON in the agent's config so inject_to_env() delivers
             # it as CLAWFORCE_OPENAI_OAUTH_TOKEN — same pipeline as API keys.
             if agent_id:
-                token_json = json.dumps({
-                    "access": tok.access,
-                    "refresh": tok.refresh,
-                    "expires": tok.expires,
-                    "account_id": tok.account_id,
-                })
+                token_json = json.dumps(
+                    {
+                        "access": tok.access,
+                        "refresh": tok.refresh,
+                        "expires": tok.expires,
+                        "account_id": tok.account_id,
+                    }
+                )
                 providers_update: dict = {
                     provider: {"api_key": token_json},
                 }
