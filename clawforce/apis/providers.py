@@ -9,9 +9,15 @@ import urllib.parse
 import httpx
 
 try:
-    import docker as _docker_module  # type: ignore[import]
+    from kubernetes import (  # type: ignore[import]
+        client as _k8s_client_module,
+    )
+    from kubernetes import (
+        config as _k8s_config_module,
+    )
 except ImportError:
-    _docker_module = None  # type: ignore[assignment]
+    _k8s_client_module = None  # type: ignore[assignment]
+    _k8s_config_module = None  # type: ignore[assignment]
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from loguru import logger
@@ -358,13 +364,13 @@ async def oauth_status(
 _OAUTH_CALLBACK_TIMEOUT = 300.0  # 5 minutes for the user to complete sign-in in the browser
 
 # Registry of in-flight OAuth flows: state → (code_future, verifier)
-# The ephemeral callback container delivers the auth code here via
+# The ephemeral OAuth callback pod delivers the auth code here via
 # POST /api/providers/oauth/internal/deliver.
 _active_oauth_flows: dict[str, tuple["asyncio.Future[str]", str]] = {}
 
 
 # ---------------------------------------------------------------------------
-# Internal deliver endpoint — called by the callback container, not the browser
+# Internal deliver endpoint — called by the callback pod, not the browser
 # ---------------------------------------------------------------------------
 
 
@@ -375,9 +381,9 @@ class _OAuthDeliverRequest(BaseModel):
 
 @router.post("/api/providers/oauth/internal/deliver")
 async def oauth_internal_deliver(body: _OAuthDeliverRequest):
-    """Receive the auth code from the ephemeral OAuth callback container.
+    """Receive the auth code from the ephemeral OAuth callback pod.
 
-    The callback container POSTs here after the browser lands on its
+    The callback pod POSTs here after the browser lands on its
     ``/auth/callback`` endpoint.  No user auth required — the ``state`` value
     already acts as a one-time bearer token (PKCE security model).
     """
@@ -393,119 +399,135 @@ async def oauth_internal_deliver(body: _OAuthDeliverRequest):
 
 
 # ---------------------------------------------------------------------------
-# Docker callback container helpers
+# Kubernetes callback pod helpers
 # ---------------------------------------------------------------------------
 
+_K8S_NAMESPACE = os.environ.get("K8S_NAMESPACE", "clawforce")
 
-def _get_docker_client():
-    """Return a Docker client if the daemon socket is accessible, else None."""
-    if _docker_module is None:
+
+def _get_k8s_client():
+    """Return a Kubernetes CoreV1Api if the cluster is accessible, else None."""
+    if _k8s_client_module is None or _k8s_config_module is None:
         return None
     try:
-        client = _docker_module.DockerClient(base_url="unix:///var/run/docker.sock")
-        client.ping()
-        return client
+        try:
+            _k8s_config_module.load_incluster_config()
+        except Exception:
+            kubeconfig = os.environ.get("KUBECONFIG")
+            if not kubeconfig and os.path.exists("/etc/rancher/k3s/k3s.yaml"):
+                kubeconfig = "/etc/rancher/k3s/k3s.yaml"
+            _k8s_config_module.load_kube_config(config_file=kubeconfig)
+        api = _k8s_client_module.CoreV1Api()
+        api.list_namespace(limit=1)
+        return api
     except Exception:
         return None
 
 
-def _spawn_callback_container(
-    docker_client,
+def _spawn_callback_pod(
+    k8s_api,
     redirect_uri: str,
     notify_url: str,
     state: str,
 ):
-    """Start an ephemeral container that listens on the OAuth callback port.
+    """Start an ephemeral pod that listens on the OAuth callback port.
 
-    The container runs ``clawforce.oauth_callback_server``, binds the port
-    extracted from *redirect_uri* on ``127.0.0.1`` of the host, and POSTs the
-    auth code to *notify_url* once the browser lands on ``/auth/callback``.
+    The pod runs ``clawforce.oauth_callback_server``, binds *port* on the host
+    via hostPort, and POSTs the auth code to *notify_url* once the browser lands
+    on ``/auth/callback``.
 
-    Host resolution strategy (tried in order, first success wins):
+    The notify URL is rewritten to use the k8s service DNS name so the pod can
+    reach the clawforce admin service within the cluster.
 
-    1. ``host.docker.internal`` via ``extra_hosts: host-gateway`` — Docker on Linux
-    2. ``host.containers.internal`` without extra_hosts — Podman (auto-injects this)
-    3. ``host.docker.internal`` without extra_hosts — Docker Desktop (Mac / Windows,
-       auto-injects this hostname)
-
-    Returns the container object, or ``None`` if all attempts fail.
+    Returns the pod name string, or ``None`` if creation fails.
     """
     parsed = urllib.parse.urlparse(redirect_uri)
     port = parsed.port or 1455
     image = os.environ.get("AGENT_IMAGE", "ghcr.io/saolalab/clawforce:latest")
-    name = f"clawforce-oauth-cb-{state[:12]}"
+    pod_name = f"clawforce-oauth-cb-{state[:12]}"
 
-    # Attempts: (notify_url_to_use, extra_hosts_dict)
-    # host.containers.internal — Podman auto-injects this into every container.
-    # host.docker.internal     — Docker Desktop injects this; Docker on Linux needs
-    #                            the explicit host-gateway mapping.
-    attempts: list[tuple[str, dict]] = [
-        (notify_url, {"host.docker.internal": "host-gateway"}),
-        (notify_url.replace("host.docker.internal", "host.containers.internal"), {}),
-        (notify_url, {}),
-    ]
+    # Rewrite notify_url to use k8s service DNS (pod cannot reach host.docker.internal)
+    svc_host = f"clawforce.{_K8S_NAMESPACE}.svc.cluster.local"
+    effective_url = (
+        notify_url.replace("host.docker.internal", svc_host)
+        .replace("host.containers.internal", svc_host)
+        .replace("localhost", svc_host)
+        .replace("127.0.0.1", svc_host)
+    )
 
-    last_exc: Exception | None = None
-    for effective_url, extra_hosts in attempts:
-        # Clean up any container left from a failed previous attempt.
-        try:
-            docker_client.containers.get(name).remove(force=True)
-        except Exception:
-            pass
-
-        kwargs: dict = {
-            "image": image,
-            "command": ["python", "-m", "clawforce.oauth_callback_server"],
-            "detach": True,
-            "name": name,
-            "environment": {"OAUTH_NOTIFY_URL": effective_url, "OAUTH_PORT": str(port)},
-            "ports": {f"{port}/tcp": ("127.0.0.1", port)},
-            "remove": False,
-        }
-        if extra_hosts:
-            kwargs["extra_hosts"] = extra_hosts
-
-        try:
-            container = docker_client.containers.run(**kwargs)
-            logger.info(
-                "OAuth callback container started: {} (port {}, notify→{})",
-                name,
-                port,
-                effective_url,
-            )
-            return container
-        except Exception as exc:
-            last_exc = exc
-            logger.debug("OAuth container attempt failed ({}): {}", effective_url, exc)
-
-    logger.warning("Could not start OAuth callback container: {}", last_exc)
-    return None
-
-
-def _stop_container(container) -> None:
+    # Remove stale pod from a previous attempt
     try:
-        container.stop(timeout=3)
+        k8s_api.delete_namespaced_pod(pod_name, _K8S_NAMESPACE, grace_period_seconds=0)
     except Exception:
         pass
+
+    pod = _k8s_client_module.V1Pod(
+        metadata=_k8s_client_module.V1ObjectMeta(
+            name=pod_name,
+            namespace=_K8S_NAMESPACE,
+            labels={"app": "clawforce-oauth-cb"},
+        ),
+        spec=_k8s_client_module.V1PodSpec(
+            restart_policy="Never",
+            containers=[
+                _k8s_client_module.V1Container(
+                    name="oauth-callback",
+                    image=image,
+                    image_pull_policy=os.environ.get("AGENT_IMAGE_PULL_POLICY", "IfNotPresent"),
+                    command=["python", "-m", "clawforce.oauth_callback_server"],
+                    env=[
+                        _k8s_client_module.V1EnvVar(name="OAUTH_NOTIFY_URL", value=effective_url),
+                        _k8s_client_module.V1EnvVar(name="OAUTH_PORT", value=str(port)),
+                    ],
+                    ports=[
+                        _k8s_client_module.V1ContainerPort(
+                            container_port=port,
+                            host_port=port,
+                            protocol="TCP",
+                        )
+                    ],
+                )
+            ],
+        ),
+    )
+
     try:
-        container.remove()
+        k8s_api.create_namespaced_pod(_K8S_NAMESPACE, pod)
+        logger.info(
+            "OAuth callback pod started: {} (port {}, notify→{})",
+            pod_name,
+            port,
+            effective_url,
+        )
+        return pod_name
+    except Exception as exc:
+        logger.warning("Could not start OAuth callback pod: {}", exc)
+        return None
+
+
+def _stop_pod(pod_name_or_none, k8s_api=None) -> None:
+    """Delete the OAuth callback pod."""
+    if not pod_name_or_none:
+        return
+    if k8s_api is None:
+        k8s_api = _get_k8s_client()
+    if k8s_api is None:
+        return
+    try:
+        k8s_api.delete_namespaced_pod(pod_name_or_none, _K8S_NAMESPACE, grace_period_seconds=0)
     except Exception:
         pass
 
 
 def _build_notify_url(request: Request) -> str:
-    """Build the URL the callback container will POST the auth code to.
+    """Build the URL the OAuth callback pod will POST the auth code to.
 
-    Uses ``host.docker.internal`` so the callback container (a sibling
-    container on the same Docker host) can reach the clawforce server through
-    the host's port mapping.  Falls back to ``localhost`` for non-Docker runs.
+    Uses the request's host/scheme so the pod can reach the clawforce server.
+    The _spawn_callback_pod function rewrites this to a k8s service DNS name.
     """
     host = request.headers.get("host", "localhost:8080")
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-    # Replace 'localhost' with host.docker.internal so sibling containers can
-    # reach the clawforce server via the host machine's port mapping.
-    container_host = host.replace("localhost", "host.docker.internal")
-    return f"{scheme}://{container_host}/api/providers/oauth/internal/deliver"
+    return f"{scheme}://{host}/api/providers/oauth/internal/deliver"
 
 
 # ---------------------------------------------------------------------------
@@ -518,13 +540,12 @@ async def _run_oauth_flow(
     url_ready: "asyncio.Future[str]",
     notify_url: str,
 ) -> OAuthToken:
-    """Run the PKCE OAuth flow using an ephemeral Docker callback container.
+    """Run the PKCE OAuth flow using an ephemeral k8s callback pod.
 
     1. Generates a PKCE pair and state token.
-    2. Tries to spawn a short-lived Docker container that binds the provider's
-       callback port (e.g. 1455) and relays the auth code back via *notify_url*.
-    3. Falls back to ``_start_local_server`` when Docker is unavailable (local
-       dev without socket access).
+    2. Tries to spawn a short-lived k8s pod that binds the provider's callback
+       port (e.g. 1455) via hostPort and relays the auth code back via *notify_url*.
+    3. Falls back to ``_start_local_server`` when k8s is unavailable (local dev).
     4. Resolves *url_ready* immediately so the endpoint can return the auth URL
        to the frontend, then waits up to 5 minutes for the code to arrive.
     """
@@ -549,22 +570,23 @@ async def _run_oauth_flow(
     code_future: asyncio.Future[str] = loop.create_future()
     _active_oauth_flows[state] = (code_future, verifier)
 
-    container = None
+    pod_name = None
+    k8s_api = None
     local_server = None
 
-    docker_client = await asyncio.to_thread(_get_docker_client)
-    if docker_client is not None:
-        container = await asyncio.to_thread(
-            _spawn_callback_container,
-            docker_client,
+    k8s_api = await asyncio.to_thread(_get_k8s_client)
+    if k8s_api is not None:
+        pod_name = await asyncio.to_thread(
+            _spawn_callback_pod,
+            k8s_api,
             oauth_cfg.redirect_uri,
             notify_url,
             state,
         )
 
-    if container is None:
+    if pod_name is None:
         # Fallback: start the local server directly on the callback port.
-        # Works when clawforce is run directly on the host (not in Docker).
+        # Works when clawforce is run directly on the host (not inside k3s).
         def _on_code(code: str) -> None:
             if not code_future.done():
                 loop.call_soon_threadsafe(code_future.set_result, code)
@@ -573,8 +595,8 @@ async def _run_oauth_flow(
         if not local_server:
             raise RuntimeError(
                 f"OAuth callback server could not start on port 1455: {server_error}. "
-                "Make sure the Docker socket is mounted (-v /var/run/docker.sock:/var/run/docker.sock) "
-                "or that port 1455 is not already in use."
+                "Make sure k3s is running and the clawforce pod has permission to create "
+                "pods in the clawforce namespace, or that port 1455 is not already in use."
             )
 
     if not url_ready.done():
@@ -589,8 +611,8 @@ async def _run_oauth_flow(
         )
     finally:
         _active_oauth_flows.pop(state, None)
-        if container is not None:
-            await asyncio.to_thread(_stop_container, container)
+        if pod_name is not None:
+            await asyncio.to_thread(_stop_pod, pod_name, k8s_api)
         if local_server is not None:
             await asyncio.to_thread(local_server.shutdown)
             local_server.server_close()
@@ -614,15 +636,15 @@ async def oauth_authorize(
 ):
     """Start an OAuth browser login flow for a provider.
 
-    Spawns an ephemeral Docker container that binds the provider's callback port
-    (e.g. 1455) on the host, builds the authorization URL, and returns it
+    Spawns an ephemeral k8s pod that binds the provider's callback port
+    (e.g. 1455) via hostPort, builds the authorization URL, and returns it
     immediately so the frontend can open it in a new tab.  Once the user
-    completes sign-in the callback container relays the code back, the token is
+    completes sign-in the callback pod relays the code back, the token is
     saved, and ``GET /api/providers/oauth/{provider}/status`` returns
     ``{"authorized": true}``.
 
-    Falls back to a local port-1455 server when the Docker socket is
-    unavailable (direct-run / local development without Docker).
+    Falls back to a local port-1455 server when the k8s cluster is
+    unavailable (direct-run / local development without k3s).
     """
     oauth_cfg = OAUTH_PROVIDER_CONFIGS.get(provider)
     if not oauth_cfg:

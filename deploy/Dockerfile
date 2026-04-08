@@ -1,11 +1,11 @@
-# All-in-one Clawforce image: SPA + API; same image is used as worker when using Docker runtime.
+# All-in-one Clawforce image: SPA + API; same image is used as agent worker pods.
 # Build: docker build -t clawforce:latest -f deploy/Dockerfile .
 #
-# Run (mount socket so the container can spawn agent and OAuth callback containers):
-#   docker run -d -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock -v clawforce-data:/data clawforce:latest
+# Deploy on k3s (see scripts/install.sh for the full deployment):
+#   kubectl apply -f deploy/k8s/
 #
-# OAuth callback ports (e.g. 1455 for ChatGPT/Codex) are handled by short-lived sibling containers
-# spawned on demand — no extra -p flag needed in this run command.
+# OAuth callback ports (e.g. 1455 for ChatGPT/Codex) are handled by short-lived sibling pods
+# spawned on demand — no extra port configuration needed.
 
 # Stage 1: Build React SPA (cache-friendly: deps first, then source)
 FROM node:20-slim AS frontend
@@ -66,20 +66,22 @@ RUN chmod +x /app/deploy/entrypoint.sh
 
 # Runtime config
 ENV ADMIN_STORAGE_ROOT=/data
-ENV ADMIN_RUNTIME_BACKEND=docker
+ENV ADMIN_RUNTIME_BACKEND=k8s
 # Redirect XDG user-data dir under /data so OAuth tokens (and any other
-# platformdirs-managed state) survive container recreation.
+# platformdirs-managed state) survive pod recreation.
 ENV XDG_DATA_HOME=/data/.local/share
 
 # Default admin credentials for first-run setup (set in entrypoint to avoid ENV secret warning).
-# Override for production: docker run -e ADMIN_SETUP_USERNAME=admin -e ADMIN_SETUP_PASSWORD=your-secure-password ...
+# Override: kubectl set env deployment/clawforce ADMIN_SETUP_USERNAME=admin ADMIN_SETUP_PASSWORD=...
 
 # Worker image: published builds set this at CI time; local builds use clawforce:latest.
-# Workers get an isolated bind mount (data/agents/{id}).
-# Set AGENT_STORAGE_HOST_PATH to the host path mounted at /data when running in Docker.
-# Docker daemon: mount -v /var/run/docker.sock:/var/run/docker.sock
+# Workers get an isolated hostPath bind mount (data/agents/{id}) via k8s pod spec.
+# Set AGENT_STORAGE_HOST_PATH to the host directory mounted at /data.
 ENV AGENT_IMAGE=ghcr.io/saolalab/clawforce:latest
-ENV ADMIN_PUBLIC_URL=http://host.docker.internal:8080
+# Admin URL visible to worker pods — use k8s service DNS within the cluster.
+ENV ADMIN_PUBLIC_URL=http://clawforce.clawforce.svc.cluster.local:8080
+# k8s namespace for agent pods and OAuth callback pods.
+ENV K8S_NAMESPACE=clawforce
 RUN mkdir -p /data
 VOLUME /data
 

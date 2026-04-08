@@ -28,7 +28,7 @@ user_app = typer.Typer(help="User management")
 app.add_typer(user_app, name="user")
 
 
-POOL_MODES = ["process", "docker"]
+POOL_MODES = ["process", "k8s"]
 
 DEFAULT_DATA_DIR = str(Path.home() / ".clawforce-data")
 
@@ -43,7 +43,7 @@ def agent_create(
         None,
         "--mode",
         "-m",
-        help="Execution mode: process (subprocess) or docker (container). Default: use app runtime.",
+        help="Execution mode: process (subprocess) or k8s (pod). Default: use app runtime.",
     ),
     description: str = typer.Option("", "--description", "-d", help="Agent description"),
     show_token: bool = typer.Option(True, "--show-token/--no-token", help="Show connection info"),

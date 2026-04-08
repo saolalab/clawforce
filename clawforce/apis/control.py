@@ -38,7 +38,7 @@ router = APIRouter(tags=["control"])
 
 RUNTIME_LABELS: dict[str, str] = {
     "process": "Process (one subprocess per agent — default)",
-    "docker": "Docker (one container per agent — full isolation)",
+    "k8s": "Kubernetes / k3s (one pod per agent — full isolation)",
 }
 
 
@@ -52,7 +52,7 @@ async def runtime_info(
     runtime_cls = type(runtime).__name__
     kind = {
         "LocalRuntime": "process",
-        "DockerRuntime": "docker",
+        "K8sRuntime": "k8s",
     }.get(runtime_cls, runtime_cls)
     running_ids = runtime.running_agent_ids() if hasattr(runtime, "running_agent_ids") else []
     root = get_storage_root(storage)
@@ -66,8 +66,8 @@ async def runtime_info(
         ],
         "data_root": str(root) if root else None,
     }
-    if hasattr(runtime, "get_docker_presets"):
-        out["docker_presets"] = runtime.get_docker_presets()
+    if hasattr(runtime, "get_security_presets"):
+        out["security_presets"] = runtime.get_security_presets()
     return out
 
 

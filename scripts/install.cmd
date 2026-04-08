@@ -1,28 +1,53 @@
 @echo off
-REM Clawforce Installer - Windows Command Prompt wrapper
-REM This script launches the PowerShell installer
+REM Clawforce Installer — Windows Command Prompt launcher
+REM
+REM This script delegates to install.ps1 (PowerShell 5.1+).
+REM Run this file as Administrator for best results.
+REM
+REM For WSL2 users the bash installer is recommended instead:
+REM   wsl curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | wsl bash
 
 echo.
-echo Clawforce Installer
-echo.
-echo Launching PowerShell installer...
+echo  Clawforce Installer (Windows)
 echo.
 
-REM Check if running as admin (recommended for Docker)
+REM Warn if not elevated
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    echo WARNING: Not running as Administrator. Docker operations may require admin rights.
+    echo  WARNING: Not running as Administrator.
+    echo           Some operations ^(installing Rancher Desktop, writing to Program Files^)
+    echo           may require elevation. Re-run as Administrator if you encounter errors.
     echo.
 )
 
-REM Launch PowerShell with execution policy bypass for this script
-powershell -ExecutionPolicy Bypass -Command "& { irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 | iex }"
+REM Check PowerShell is available
+where powershell >nul 2>&1
+if %errorLevel% neq 0 (
+    echo  ERROR: PowerShell not found. Please install PowerShell 5.1 or later.
+    echo         https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows
+    pause
+    exit /b 1
+)
+
+REM Delegate to install.ps1 — either run locally (if scripts\ dir present)
+REM or download and execute directly from GitHub.
+if exist "%~dp0install.ps1" (
+    echo  Running local install.ps1 ...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" %*
+) else (
+    echo  Downloading and running install.ps1 from GitHub ...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+      "irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 | iex"
+)
 
 if %errorLevel% neq 0 (
     echo.
-    echo If PowerShell download failed, you can run manually:
-    echo   1. Open PowerShell as Administrator
-    echo   2. Run: irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 ^| iex
+    echo  Installation encountered an error ^(exit code %errorLevel%^).
+    echo.
+    echo  Troubleshooting:
+    echo    1. Run as Administrator
+    echo    2. Check: kubectl get pods -n clawforce
+    echo    3. Logs:  kubectl logs deployment/clawforce -n clawforce
     echo.
     pause
 )

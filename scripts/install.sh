@@ -1,84 +1,88 @@
 #!/usr/bin/env bash
 #
-# Clawforce Installer
-# 
+# Clawforce Installer — deploys on k3s (Kubernetes)
+#
+# Supported platforms:
+#   Linux  — installs k3s natively
+#   macOS  — guides through Rancher Desktop or k3d (k3s doesn't run natively)
+#   Windows WSL2 — installs k3s inside WSL2 then exposes via localhost
+#
 # One-line install:
 #   curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash
 #
 # Or with custom options:
-#   curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --port 9000 --data ~/my-data
+#   curl -fsSL ... | bash -s -- --port 30080 --data /opt/clawforce-data
 #
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Configuration (override via environment or flags)
+# Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 IMAGE="${CLAWFORCE_IMAGE:-ghcr.io/saolalab/clawforce:latest}"
-CONTAINER="${CLAWFORCE_CONTAINER:-clawforce}"
-DATA_DIR="${CLAWFORCE_DATA:-$HOME/.clawforce-data}"
-PORT="${CLAWFORCE_PORT:-8080}"
+NAMESPACE="${CLAWFORCE_NAMESPACE:-clawforce}"
+PORT="${CLAWFORCE_PORT:-30080}"           # k3s NodePort
 ADMIN_USER="${CLAWFORCE_ADMIN_USER:-admin}"
 ADMIN_PASS="${CLAWFORCE_ADMIN_PASS:-admin}"
-SKIP_DOCKER_INSTALL="${CLAWFORCE_SKIP_DOCKER:-false}"
-PROCESS_RUNTIME="${CLAWFORCE_PROCESS_RUNTIME:-${CLAWFORCE_PROCESS_POOL:-false}}"
-# Container engine: docker (default) or podman
-ENGINE="${CLAWFORCE_ENGINE:-}"
+SKIP_K3S_INSTALL="${CLAWFORCE_SKIP_K3S:-false}"
+PROCESS_RUNTIME="${CLAWFORCE_PROCESS_RUNTIME:-false}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parse arguments
 # ─────────────────────────────────────────────────────────────────────────────
 show_help() {
     cat << EOF
-Clawforce Installer
+Clawforce Installer  (Linux / macOS / Windows WSL2)
 
 Usage: install.sh [OPTIONS]
 
 Options:
-  --port PORT           Port to expose (default: 8080)
-  --data DIR            Data directory (default: ~/.clawforce/data)
+  --port PORT           NodePort to expose (default: 30080)
+  --data DIR            Host data directory
+                          Linux/WSL2 default: /opt/clawforce-data
+                          macOS default:      \$HOME/.clawforce-data
   --admin-user USER     Admin username (default: admin)
   --admin-pass PASS     Admin password (default: admin)
-  --engine ENGINE       Container engine: docker or podman (default: auto-detect)
-  --process-runtime     Use process runtime instead of container isolation (alias: --process-pool)
-  --skip-docker         Skip Docker/Podman installation check
-  --uninstall           Remove Clawforce container and optionally data
+  --namespace NS        Kubernetes namespace (default: clawforce)
+  --process-runtime     Use process runtime instead of k8s pod isolation
+  --skip-k3s            Skip k3s/kubectl installation check
+  --uninstall           Remove Clawforce deployment and optionally data
   -h, --help            Show this help message
 
 Environment variables:
   CLAWFORCE_IMAGE       Container image (default: ghcr.io/saolalab/clawforce:latest)
-  CLAWFORCE_ENGINE      Container engine: docker or podman (default: auto-detect)
-  CLAWFORCE_PORT        Port to expose
+  CLAWFORCE_PORT        NodePort to expose
   CLAWFORCE_DATA        Data directory path
   CLAWFORCE_ADMIN_USER  Admin username
   CLAWFORCE_ADMIN_PASS  Admin password
+  CLAWFORCE_NAMESPACE   Kubernetes namespace
 
-Examples:
-  # Quick install with defaults
-  curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash
-
-  # Custom port and data directory
-  curl -fsSL ... | bash -s -- --port 9000 --data /opt/clawforce
-
-  # With custom admin credentials
-  curl -fsSL ... | bash -s -- --admin-user myuser --admin-pass mypassword
+Platform notes:
+  Linux       k3s is installed automatically if not present.
+  macOS       k3s does not run natively. The script installs k3d via Homebrew
+              (k3s in a Docker container) or guides through Rancher Desktop.
+  Windows     Run this script inside WSL2. k3s is installed in WSL2 and
+              the NodePort is accessible at localhost:<PORT> from Windows.
+              For native Windows (no WSL2), use scripts/install.ps1 instead.
 
 EOF
     exit 0
 }
 
 UNINSTALL=false
+DATA_DIR="${CLAWFORCE_DATA:-}"    # resolved after OS detection
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --port)         PORT="$2"; shift 2 ;;
-        --data)         DATA_DIR="$2"; shift 2 ;;
-        --admin-user)   ADMIN_USER="$2"; shift 2 ;;
-        --admin-pass)   ADMIN_PASS="$2"; shift 2 ;;
-        --engine)       ENGINE="$2"; shift 2 ;;
-        --process-pool|--process-runtime) PROCESS_RUNTIME=true; shift ;;
-        --skip-docker)  SKIP_DOCKER_INSTALL=true; shift ;;
-        --uninstall)    UNINSTALL=true; shift ;;
-        -h|--help)      show_help ;;
-        *)              echo "Unknown option: $1"; show_help ;;
+        --port)            PORT="$2"; shift 2 ;;
+        --data)            DATA_DIR="$2"; shift 2 ;;
+        --admin-user)      ADMIN_USER="$2"; shift 2 ;;
+        --admin-pass)      ADMIN_PASS="$2"; shift 2 ;;
+        --namespace)       NAMESPACE="$2"; shift 2 ;;
+        --process-runtime) PROCESS_RUNTIME=true; shift ;;
+        --skip-k3s)        SKIP_K3S_INSTALL=true; shift ;;
+        --uninstall)       UNINSTALL=true; shift ;;
+        -h|--help)         show_help ;;
+        *)                 echo "Unknown option: $1"; show_help ;;
     esac
 done
 
@@ -97,15 +101,24 @@ warn()    { printf "${YELLOW}⚠${NC} %s\n" "$*"; }
 error()   { printf "${RED}✗${NC} %s\n" "$*" >&2; }
 die()     { error "$*"; exit 1; }
 
-command_exists() {
-    command -v "$1" &> /dev/null
-}
+command_exists() { command -v "$1" &>/dev/null; }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# OS / environment detection
+# ─────────────────────────────────────────────────────────────────────────────
 detect_os() {
     case "$(uname -s)" in
-        Linux*)  echo "linux" ;;
+        Linux*)
+            # Distinguish WSL2 from native Linux
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+                echo "wsl2"
+            else
+                echo "linux"
+            fi
+            ;;
         Darwin*) echo "macos" ;;
-        *)       echo "unknown" ;;
+        CYGWIN*|MINGW*|MSYS*) echo "windows-shell" ;;
+        *) echo "unknown" ;;
     esac
 }
 
@@ -113,61 +126,68 @@ detect_arch() {
     case "$(uname -m)" in
         x86_64|amd64)  echo "amd64" ;;
         aarch64|arm64) echo "arm64" ;;
+        armv7l)        echo "arm" ;;
         *)             echo "unknown" ;;
     esac
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Auto-detect container engine
-# ─────────────────────────────────────────────────────────────────────────────
-if [ -z "$ENGINE" ]; then
-    if command_exists docker; then
-        ENGINE="docker"
-    elif command_exists podman; then
-        ENGINE="podman"
-    fi
+OS=$(detect_os)
+ARCH=$(detect_arch)
+
+# Resolve platform-appropriate default data directory
+if [ -z "$DATA_DIR" ]; then
+    case "$OS" in
+        macos)          DATA_DIR="$HOME/.clawforce-data" ;;
+        wsl2)           DATA_DIR="/opt/clawforce-data" ;;
+        linux)          DATA_DIR="/opt/clawforce-data" ;;
+        windows-shell)  DATA_DIR="$HOME/.clawforce-data" ;;
+        *)              DATA_DIR="/opt/clawforce-data" ;;
+    esac
 fi
+
+# kubectl wrapper: prefers kubectl, falls back to k3s kubectl
+kubectl_cmd() {
+    if command_exists kubectl; then
+        kubectl "$@"
+    elif [ -f /usr/local/bin/k3s ]; then
+        /usr/local/bin/k3s kubectl "$@"
+    else
+        die "kubectl not found. Install k3s or kubectl first."
+    fi
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Uninstall
 # ─────────────────────────────────────────────────────────────────────────────
 if $UNINSTALL; then
-    if [ -z "$ENGINE" ]; then
-        die "Neither docker nor podman found. Nothing to uninstall."
-    fi
     info "Uninstalling Clawforce..."
 
-    # Stop and remove container
-    if $ENGINE inspect "$CONTAINER" &>/dev/null; then
-        info "Stopping container..."
-        $ENGINE stop "$CONTAINER" 2>/dev/null || true
-        $ENGINE rm "$CONTAINER" 2>/dev/null || true
-        success "Container removed"
+    if ! kubectl_cmd cluster-info &>/dev/null 2>&1; then
+        warn "No accessible k8s cluster — skipping resource deletion."
     else
-        info "Container not found"
+        kubectl_cmd delete deployment clawforce -n "$NAMESPACE" 2>/dev/null || true
+        kubectl_cmd delete pods -l app=clawbot-agent -n "$NAMESPACE" 2>/dev/null || true
+        kubectl_cmd delete pods -l app=clawforce-oauth-cb -n "$NAMESPACE" 2>/dev/null || true
+        kubectl_cmd delete service clawforce -n "$NAMESPACE" 2>/dev/null || true
+        kubectl_cmd delete serviceaccount clawforce -n "$NAMESPACE" 2>/dev/null || true
+        kubectl_cmd delete clusterrolebinding clawforce-pod-manager 2>/dev/null || true
+        kubectl_cmd delete clusterrole clawforce-pod-manager 2>/dev/null || true
+        kubectl_cmd delete namespace "$NAMESPACE" 2>/dev/null || true
+        success "Kubernetes resources removed"
     fi
 
-    # Stop agent workers
-    AGENT_CONTAINERS=$($ENGINE ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
-    if [ -n "$AGENT_CONTAINERS" ]; then
-        info "Stopping agent workers..."
-        echo "$AGENT_CONTAINERS" | xargs $ENGINE rm -f 2>/dev/null || true
-        success "Agent workers removed"
-    fi
-    
-    # Ask about data
     if [ -d "$DATA_DIR" ]; then
         echo ""
         printf "Remove data directory %s? [y/N]: " "$DATA_DIR"
         read -r response
         if [[ "$response" =~ ^[Yy]$ ]]; then
-            rm -rf "$DATA_DIR"
+            sudo rm -rf "$DATA_DIR" 2>/dev/null || rm -rf "$DATA_DIR"
             success "Data directory removed"
         else
             info "Data directory kept at $DATA_DIR"
         fi
     fi
-    
+
     success "Clawforce uninstalled"
     exit 0
 fi
@@ -180,304 +200,446 @@ echo "  ╔═══════════════════════
 echo "  ║                                                      ║"
 echo "  ║    - CLAWFORCE -                                     ║"
 echo "  ║    Autonomous AI Team Orchestration Platform         ║"
+echo "  ║    Powered by k3s (Kubernetes)                       ║"
 echo "  ║                                                      ║"
 echo "  ╚══════════════════════════════════════════════════════╝"
 echo ""
-
-OS=$(detect_os)
-ARCH=$(detect_arch)
-info "Detected: $OS ($ARCH)"
-if [ -n "$ENGINE" ]; then
-    info "Container engine: $ENGINE"
-fi
+info "Platform: $OS ($ARCH)"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Container Engine Installation
+# Platform-specific k3s/kubectl installation
 # ─────────────────────────────────────────────────────────────────────────────
-install_podman_linux() {
-    info "Installing Podman on Linux..."
 
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        DISTRO=$ID
+# ── Linux (native) ────────────────────────────────────────────────────────────
+install_k3s_linux() {
+    info "Installing k3s..."
+    # K3S_INSTALL_SKIP_START is not used — let the official installer start k3s.
+    curl -sfL https://get.k3s.io | sh -
+
+    info "Waiting for k3s to start (up to 60s)..."
+    local tries=0
+    while ! /usr/local/bin/k3s kubectl get nodes &>/dev/null 2>&1; do
+        tries=$((tries + 1))
+        [ "$tries" -ge 30 ] && die "k3s did not start within 60s.\nCheck: sudo systemctl status k3s"
+        sleep 2
+    done
+    success "k3s is running"
+
+    # Give the current user a readable kubeconfig without sudo for every command.
+    if [ -f /etc/rancher/k3s/k3s.yaml ]; then
+        mkdir -p "$HOME/.kube"
+        sudo cp /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
+        sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+        chmod 600 "$HOME/.kube/config"
+        success "kubeconfig written to $HOME/.kube/config"
+    fi
+}
+
+# ── WSL2 ──────────────────────────────────────────────────────────────────────
+# k3s runs fine inside WSL2; the NodePort is reachable from Windows via localhost.
+install_k3s_wsl2() {
+    info "Installing k3s inside WSL2..."
+
+    # WSL2 uses a custom init — k3s installer handles this via openrc/s6 fallback.
+    # We pin INSTALL_K3S_SKIP_SELINUX_RPM to avoid rpm errors on Ubuntu WSL images.
+    curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true sh -
+
+    # k3s may not auto-start in WSL2 (no systemd by default on older WSL).
+    # Attempt systemd first, then direct start.
+    if systemctl is-active k3s &>/dev/null 2>&1; then
+        success "k3s started via systemd"
+    elif command_exists systemctl && systemctl start k3s 2>/dev/null; then
+        success "k3s started via systemctl"
     else
-        DISTRO="unknown"
+        info "Starting k3s directly (non-systemd WSL2)..."
+        # Run in background; stdout/stderr to log file so installer continues.
+        sudo /usr/local/bin/k3s server \
+            --disable traefik \
+            --write-kubeconfig-mode 644 \
+            > /tmp/k3s.log 2>&1 &
+        disown
     fi
 
-    case "$DISTRO" in
-        ubuntu|debian|linuxmint|pop)
-            sudo apt-get update
-            sudo apt-get install -y podman
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            sudo dnf install -y podman 2>/dev/null || sudo yum install -y podman
-            ;;
-        arch|manjaro)
-            sudo pacman -Sy --noconfirm podman
-            ;;
-        *)
-            die "Unsupported distro for automatic Podman install. Please install Podman manually."
-            ;;
+    info "Waiting for k3s to start (up to 60s)..."
+    local tries=0
+    while ! /usr/local/bin/k3s kubectl get nodes &>/dev/null 2>&1; do
+        tries=$((tries + 1))
+        [ "$tries" -ge 30 ] && die "k3s did not start within 60s.\nCheck: cat /tmp/k3s.log"
+        sleep 2
+    done
+    success "k3s is running inside WSL2"
+    warn "The NodePort will be accessible at localhost:${PORT} from Windows."
+
+    if [ -f /etc/rancher/k3s/k3s.yaml ]; then
+        mkdir -p "$HOME/.kube"
+        sudo cp /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
+        sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+        chmod 600 "$HOME/.kube/config"
+        success "kubeconfig written to $HOME/.kube/config"
+    fi
+}
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+# k3s does not run natively on macOS (Linux kernel required).
+# We support two paths:
+#   1. k3d  — k3s packaged inside a Docker/OrbStack container (recommended for CI / devs)
+#   2. Rancher Desktop — GUI app that ships a k3s VM; kubectl is auto-configured
+install_k3s_macos() {
+    echo ""
+    echo "  k3s requires a Linux kernel and cannot run natively on macOS."
+    echo "  Choose an installation method:"
+    echo ""
+    echo "  [1] k3d (k3s in Docker) — lightweight, great for development"
+    echo "      Requires: Docker Desktop, OrbStack, or Colima"
+    echo ""
+    echo "  [2] Rancher Desktop — full GUI app with built-in k3s VM"
+    echo "      Download: https://rancherdesktop.io"
+    echo ""
+    printf "  Your choice [1/2] (default: 1): "
+    read -r choice
+    choice="${choice:-1}"
+
+    case "$choice" in
+        1) install_k3d_macos ;;
+        2) guide_rancher_desktop_macos ;;
+        *) die "Invalid choice. Run the script again." ;;
     esac
-    success "Podman installed"
 }
 
-install_podman_macos() {
-    if command_exists brew; then
-        info "Installing Podman via Homebrew..."
-        brew install podman
-        info "Initializing Podman machine..."
-        podman machine init 2>/dev/null || true
-        podman machine start 2>/dev/null || true
-        success "Podman installed"
+install_k3d_macos() {
+    # Ensure a container runtime is available
+    if ! command_exists docker && ! command_exists nerdctl; then
+        echo ""
+        error "No container runtime found. k3d needs Docker, OrbStack, or Colima."
+        echo ""
+        echo "  Quick options:"
+        echo "    OrbStack (fast, lightweight): https://orbstack.dev"
+        echo "    Docker Desktop:              https://docs.docker.com/desktop/install/mac-install/"
+        echo "    Colima (CLI, free):          brew install colima && colima start"
+        echo ""
+        die "Install a container runtime then re-run this script."
+    fi
+
+    if command_exists k3d; then
+        success "k3d is already installed"
     else
-        die "Please install Homebrew first, then run: brew install podman"
+        if command_exists brew; then
+            info "Installing k3d via Homebrew..."
+            brew install k3d
+            success "k3d installed"
+        else
+            info "Installing k3d via official installer..."
+            curl -sfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+            success "k3d installed"
+        fi
     fi
-}
 
-install_docker_linux() {
-    info "Installing Docker on Linux..."
-    
-    # Detect Linux distribution
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        DISTRO=$ID
+    # Create or reuse a k3d cluster named "clawforce"
+    if k3d cluster list 2>/dev/null | grep -q "^clawforce"; then
+        info "k3d cluster 'clawforce' already exists — reusing it"
+        k3d cluster start clawforce 2>/dev/null || true
     else
-        DISTRO="unknown"
+        info "Creating k3d cluster 'clawforce' (NodePort ${PORT} → 30080)..."
+        k3d cluster create clawforce \
+            --port "${PORT}:30080@loadbalancer" \
+            --agents 1
+        success "k3d cluster 'clawforce' created"
     fi
-    
-    case "$DISTRO" in
-        ubuntu|debian|linuxmint|pop)
-            info "Using apt package manager..."
-            sudo apt-get update
-            sudo apt-get install -y ca-certificates curl gnupg
-            sudo install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/$DISTRO/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null || true
-            sudo chmod a+r /etc/apt/keyrings/docker.gpg
-            echo \
-              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$DISTRO \
-              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-              sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            info "Using dnf/yum package manager..."
-            sudo dnf -y install dnf-plugins-core 2>/dev/null || sudo yum -y install yum-utils
-            sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo 2>/dev/null || \
-                sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-            sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null || \
-                sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            ;;
-        arch|manjaro)
-            info "Using pacman package manager..."
-            sudo pacman -Sy --noconfirm docker docker-compose
-            ;;
-        *)
-            info "Using convenience script for unknown distro..."
-            curl -fsSL https://get.docker.com | sudo sh
-            ;;
-    esac
-    
-    # Start Docker service
-    sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
-    sudo systemctl enable docker 2>/dev/null || true
-    
-    # Add current user to docker group
-    if ! groups | grep -q docker; then
-        sudo usermod -aG docker "$USER"
-        warn "Added $USER to docker group. You may need to log out and back in."
-        warn "For now, running with sudo..."
-        NEED_SUDO=true
-    fi
+
+    # k3d writes kubeconfig automatically
+    k3d kubeconfig merge clawforce --kubeconfig-merge-default --kubeconfig-switch-context
+    success "kubeconfig updated (context: k3d-clawforce)"
+
+    # On macOS with k3d the NodePort is served via the load-balancer on 127.0.0.1:PORT
+    warn "Access Clawforce at http://localhost:${PORT} (k3d load-balancer)"
 }
 
-install_docker_macos() {
-    info "Docker Desktop is required on macOS"
-    
-    if command_exists brew; then
-        info "Installing via Homebrew..."
-        brew install --cask docker
-        success "Docker Desktop installed"
-        echo ""
-        warn "Please open Docker Desktop to complete setup, then run this script again."
-        echo ""
-        echo "  1. Open Docker Desktop from Applications"
-        echo "  2. Complete the setup wizard"
-        echo "  3. Wait for Docker to start (whale icon in menu bar)"
-        echo "  4. Run this installer again"
-        echo ""
-        exit 0
-    else
-        echo ""
-        error "Docker Desktop is not installed."
-        echo ""
-        echo "  Please install Docker Desktop from:"
-        echo "  https://docs.docker.com/desktop/install/mac-install/"
-        echo ""
-        echo "  Or install Homebrew first:"
-        echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-        echo ""
-        exit 1
-    fi
-}
-
-check_and_install_engine() {
-    if $SKIP_DOCKER_INSTALL; then
-        info "Skipping container engine check (--skip-docker)"
+guide_rancher_desktop_macos() {
+    echo ""
+    if command_exists kubectl && kubectl_cmd get nodes &>/dev/null 2>&1; then
+        success "Rancher Desktop is already running — proceeding with deployment."
         return 0
     fi
 
-    # If engine is already set and available, check if it's running
-    if [ -n "$ENGINE" ] && command_exists "$ENGINE"; then
-        if $ENGINE info &>/dev/null; then
-            success "$ENGINE is installed and running"
-            return 0
-        else
-            warn "$ENGINE is installed but not running"
-
-            case "$OS" in
-                linux)
-                    if [ "$ENGINE" = "docker" ]; then
-                        info "Starting Docker service..."
-                        sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
-                    else
-                        info "Starting Podman service..."
-                        systemctl --user start podman.socket 2>/dev/null || true
-                    fi
-                    sleep 2
-                    ;;
-                macos)
-                    if [ "$ENGINE" = "podman" ]; then
-                        info "Starting Podman machine..."
-                        podman machine start 2>/dev/null || true
-                        sleep 2
-                    else
-                        echo ""
-                        warn "Please start Docker Desktop and run this script again."
-                        echo ""
-                        exit 1
-                    fi
-                    ;;
-            esac
-
-            if $ENGINE info &>/dev/null; then
-                success "$ENGINE started"
-                return 0
-            else
-                die "Could not start $ENGINE. Please start it manually and try again."
-            fi
-        fi
-    fi
-
-    # Engine not installed — try to install
+    echo "  Please install and start Rancher Desktop:"
     echo ""
-    if [ "$ENGINE" = "podman" ]; then
-        warn "Podman is not installed."
-        printf "Install Podman now? [Y/n]: "
-        read -r response
-        if [[ ! "$response" =~ ^[Nn]$ ]]; then
-            case "$OS" in
-                linux)  install_podman_linux ;;
-                macos)  install_podman_macos ;;
-                *)      die "Unsupported OS. Please install Podman manually." ;;
-            esac
-        else
-            die "Podman is required. Please install it and try again."
-        fi
+    if command_exists brew; then
+        echo "    brew install --cask rancher"
+        echo "    # Then open Rancher Desktop from Applications and wait for it to start."
     else
-        # Default: install docker
-        ENGINE="docker"
-        warn "Docker is not installed."
-        printf "Install Docker now? [Y/n]: "
-        read -r response
-        if [[ ! "$response" =~ ^[Nn]$ ]]; then
-            case "$OS" in
-                linux)  install_docker_linux ;;
-                macos)  install_docker_macos ;;
-                *)      die "Unsupported OS. Please install Docker manually." ;;
-            esac
-        else
-            die "Docker is required. Please install it and try again."
-        fi
+        echo "    Download from: https://rancherdesktop.io"
+    fi
+    echo ""
+    echo "  After Rancher Desktop is running, re-run this installer:"
+    echo "    curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash"
+    echo ""
+    exit 0
+}
+
+# ── Windows (Git Bash / MSYS2 — not WSL2) ────────────────────────────────────
+guide_windows_shell() {
+    echo ""
+    warn "You appear to be running in Git Bash or MSYS2 on Windows (not WSL2)."
+    echo ""
+    echo "  Recommended installation paths for Windows:"
+    echo ""
+    echo "  [A] WSL2 (recommended)"
+    echo "      Install WSL2:  https://learn.microsoft.com/windows/wsl/install"
+    echo "      Then run this script inside your WSL2 terminal."
+    echo ""
+    echo "  [B] Native PowerShell installer"
+    echo "      Run in an elevated PowerShell (Administrator):"
+    echo "      irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 | iex"
+    echo ""
+    echo "  [C] Rancher Desktop for Windows (GUI)"
+    echo "      https://rancherdesktop.io — ships kubectl + k3s VM"
+    echo "      After installing, kubectl will be in PATH; re-run this script."
+    echo ""
+    printf "  Continue anyway (kubectl must already be in PATH)? [y/N]: "
+    read -r response
+    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+        exit 0
     fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pre-flight checks
+# Main k3s / kubectl check + install
 # ─────────────────────────────────────────────────────────────────────────────
-NEED_SUDO=false
-check_and_install_engine
-
-# Check if we need sudo for the engine
-if ! $ENGINE info &>/dev/null 2>&1; then
-    if sudo $ENGINE info &>/dev/null 2>&1; then
-        NEED_SUDO=true
-        if [ "$ENGINE" = "docker" ]; then
-            warn "Docker requires sudo. Consider adding your user to the docker group."
-        else
-            warn "Podman requires sudo. Consider using rootless mode."
-        fi
-    else
-        die "Cannot connect to $ENGINE"
+check_and_install_k3s() {
+    if $SKIP_K3S_INSTALL; then
+        info "Skipping k3s check (--skip-k3s)"
+        return 0
     fi
-fi
 
-engine_cmd() {
-    if $NEED_SUDO; then
-        sudo $ENGINE "$@"
-    else
-        $ENGINE "$@"
+    # Already working?
+    if kubectl_cmd get nodes &>/dev/null 2>&1; then
+        success "k8s cluster is reachable — skipping installation"
+        return 0
     fi
+
+    case "$OS" in
+        linux)
+            if [ -f /usr/local/bin/k3s ]; then
+                # k3s binary present but cluster unreachable — try to start it
+                info "k3s binary found but cluster is not responding. Starting k3s..."
+                sudo systemctl start k3s 2>/dev/null || \
+                    sudo /usr/local/bin/k3s server --disable traefik > /tmp/k3s.log 2>&1 &
+                disown 2>/dev/null || true
+                sleep 5
+                if kubectl_cmd get nodes &>/dev/null 2>&1; then
+                    success "k3s started"
+                    return 0
+                fi
+            fi
+            warn "k3s is not installed."
+            printf "Install k3s now? [Y/n]: "
+            read -r response
+            if [[ ! "$response" =~ ^[Nn]$ ]]; then
+                install_k3s_linux
+            else
+                die "k3s is required. Install from https://k3s.io"
+            fi
+            ;;
+
+        wsl2)
+            if [ -f /usr/local/bin/k3s ]; then
+                info "k3s binary found. Starting k3s in WSL2..."
+                # Try systemd, fall back to direct start
+                sudo systemctl start k3s 2>/dev/null || \
+                    { sudo /usr/local/bin/k3s server --disable traefik \
+                        > /tmp/k3s.log 2>&1 & disown 2>/dev/null || true; }
+                sleep 5
+                if kubectl_cmd get nodes &>/dev/null 2>&1; then
+                    success "k3s started"
+                    return 0
+                fi
+            fi
+            warn "k3s is not installed in this WSL2 instance."
+            printf "Install k3s now? [Y/n]: "
+            read -r response
+            if [[ ! "$response" =~ ^[Nn]$ ]]; then
+                install_k3s_wsl2
+            else
+                die "k3s is required. Install from https://k3s.io"
+            fi
+            ;;
+
+        macos)
+            install_k3s_macos
+            ;;
+
+        windows-shell)
+            guide_windows_shell
+            ;;
+
+        *)
+            die "Unsupported OS '${OS}'. Please install k3s manually: https://k3s.io"
+            ;;
+    esac
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Stop existing containers
-# ─────────────────────────────────────────────────────────────────────────────
-if engine_cmd inspect "$CONTAINER" &>/dev/null; then
-    info "Stopping existing Clawforce container..."
-    engine_cmd stop "$CONTAINER" 2>/dev/null || true
-    engine_cmd rm "$CONTAINER" 2>/dev/null || true
-fi
+check_and_install_k3s
 
-# Stop any orphaned agent workers
-AGENT_CONTAINERS=$(engine_cmd ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
-if [ -n "$AGENT_CONTAINERS" ]; then
-    info "Cleaning up agent workers..."
-    echo "$AGENT_CONTAINERS" | xargs engine_cmd rm -f 2>/dev/null || true
-fi
+# Final sanity check
+kubectl_cmd cluster-info &>/dev/null || \
+    die "k8s cluster is still not reachable after installation. Check k3s status."
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Create data directory
+# Data directory
 # ─────────────────────────────────────────────────────────────────────────────
 info "Setting up data directory: $DATA_DIR"
-mkdir -p "$DATA_DIR"
-
-# Convert to absolute path
-DATA_DIR="$(cd "$DATA_DIR" && pwd)"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Registry login check
-# ─────────────────────────────────────────────────────────────────────────────
+if [[ "$OS" == "linux" || "$OS" == "wsl2" ]]; then
+    sudo mkdir -p "$DATA_DIR"
+    sudo chown "$(id -u):$(id -g)" "$DATA_DIR" 2>/dev/null || true
+else
+    mkdir -p "$DATA_DIR"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pull image
+# Apply Kubernetes manifests
 # ─────────────────────────────────────────────────────────────────────────────
-info "Pulling Clawforce image: $IMAGE"
-engine_cmd pull "$IMAGE"
-success "Image pulled"
+info "Creating namespace and RBAC..."
+kubectl_cmd apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $NAMESPACE
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clawforce
+  namespace: $NAMESPACE
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clawforce-pod-manager
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "namespaces"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clawforce-pod-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clawforce-pod-manager
+subjects:
+  - kind: ServiceAccount
+    name: clawforce
+    namespace: $NAMESPACE
+EOF
+success "Namespace and RBAC configured"
+
+if $PROCESS_RUNTIME; then
+    RUNTIME_BACKEND="process"
+    info "Using process runtime (no pod isolation for agents)"
+else
+    RUNTIME_BACKEND="k8s"
+    info "Using k8s pod isolation for agents"
+fi
+
+# Pre-pull image into k3s containerd (Linux / WSL2 only; not applicable on k3d)
+if command_exists k3s && [[ "$OS" == "linux" || "$OS" == "wsl2" ]]; then
+    info "Pre-pulling image into k3s containerd: $IMAGE"
+    sudo k3s crictl pull "$IMAGE" 2>/dev/null || \
+        warn "Could not pre-pull image (will pull on pod start)"
+fi
+
+info "Deploying Clawforce..."
+kubectl_cmd apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clawforce
+  namespace: $NAMESPACE
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clawforce
+  template:
+    metadata:
+      labels:
+        app: clawforce
+    spec:
+      serviceAccountName: clawforce
+      containers:
+        - name: clawforce
+          image: $IMAGE
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ADMIN_RUNTIME_BACKEND
+              value: "$RUNTIME_BACKEND"
+            - name: K8S_NAMESPACE
+              value: "$NAMESPACE"
+            - name: ADMIN_STORAGE_ROOT
+              value: "/data"
+            - name: ADMIN_PUBLIC_URL
+              value: "http://clawforce.$NAMESPACE.svc.cluster.local:8080"
+            - name: AGENT_STORAGE_HOST_PATH
+              value: "$DATA_DIR"
+            - name: AGENT_IMAGE
+              value: "$IMAGE"
+            - name: ADMIN_SETUP_USERNAME
+              value: "$ADMIN_USER"
+            - name: ADMIN_SETUP_PASSWORD
+              value: "$ADMIN_PASS"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+      volumes:
+        - name: data
+          hostPath:
+            path: $DATA_DIR
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clawforce
+  namespace: $NAMESPACE
+spec:
+  selector:
+    app: clawforce
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: $PORT
+  type: NodePort
+EOF
+success "Deployment and Service applied"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Install CLI Wrapper
+# Install CLI wrapper
 # ─────────────────────────────────────────────────────────────────────────────
 install_cli_wrapper() {
     info "Installing 'clawforce' CLI wrapper..."
 
-    # Ensure we're in a valid directory (avoids "chdir: cannot access parent" when cwd is stale)
     cd "${TMPDIR:-/tmp}" 2>/dev/null || cd /tmp 2>/dev/null || true
 
-    # Pick an install directory the current user can write to
-    local install_dir
+    local install_dir=""
     for _candidate in "$HOME/.local/bin" "$HOME/bin" "$HOME/.bin"; do
         if mkdir -p "$_candidate" 2>/dev/null; then
             install_dir="$_candidate"
@@ -485,129 +647,109 @@ install_cli_wrapper() {
         fi
     done
     if [ -z "$install_dir" ]; then
-        warn "Could not create a writable bin directory under \$HOME. Skipping CLI wrapper."
+        warn "Could not find a writable bin directory — skipping CLI wrapper."
         return 1
     fi
 
     local wrapper_path="$install_dir/clawforce"
-
     local tmpfile
-    tmpfile="$(mktemp)" || { warn "Could not create temp file. Skipping CLI wrapper."; return 1; }
-    cat > "$tmpfile" << 'EOF'
+    tmpfile="$(mktemp)" || { warn "mktemp failed — skipping CLI wrapper."; return 1; }
+
+    cat > "$tmpfile" << 'WRAPPER_EOF'
 #!/usr/bin/env bash
-# clawforce - Manage the Clawforce container
+# clawforce — Manage the Clawforce k3s deployment
 
-CONTAINER="${CLAWFORCE_CONTAINER:-clawforce}"
+NAMESPACE="${CLAWFORCE_NAMESPACE:-clawforce}"
 
-# Container engine: docker (default) or podman
-if [ -n "$CLAWFORCE_ENGINE" ]; then
-    ENGINE="$CLAWFORCE_ENGINE"
-elif command -v docker &>/dev/null; then
-    ENGINE="docker"
-elif command -v podman &>/dev/null; then
-    ENGINE="podman"
-else
-    echo "Error: neither docker nor podman found in PATH"
-    exit 1
-fi
+kubectl_cmd() {
+    if command -v kubectl &>/dev/null; then
+        kubectl "$@"
+    elif [ -f /usr/local/bin/k3s ]; then
+        /usr/local/bin/k3s kubectl "$@"
+    else
+        echo "Error: kubectl not found in PATH" >&2
+        exit 1
+    fi
+}
 
 show_help() {
     echo "Usage: clawforce <command>"
     echo ""
     echo "Commands:"
-    echo "  start     Start the Clawforce container"
-    echo "  stop      Stop the Clawforce container"
-    echo "  clean     Stop and remove the Clawforce container"
-    echo "  restart   Restart the Clawforce container"
-    echo "  update    Pull the latest image and recreate the container"
-    echo "  logs      View container logs"
-    echo "  status    Check container status"
+    echo "  start     Scale up the Clawforce deployment (replicas=1)"
+    echo "  stop      Scale down the Clawforce deployment (replicas=0)"
+    echo "  restart   Restart the Clawforce pods"
+    echo "  update    Pull the latest image and restart"
+    echo "  logs      Stream pod logs"
+    echo "  status    Show pod and agent status"
+    echo "  shell     Open a shell in the Clawforce pod"
     echo ""
     echo "Environment:"
-    echo "  CLAWFORCE_ENGINE   Container engine to use: docker or podman (default: auto-detect)"
+    echo "  CLAWFORCE_NAMESPACE   Kubernetes namespace (default: clawforce)"
 }
 
-if [ $# -eq 0 ]; then
-    show_help
-    exit 1
-fi
+[ $# -eq 0 ] && { show_help; exit 1; }
 
 case "$1" in
     start)
-        echo "Starting $CONTAINER..."
-        $ENGINE start "$CONTAINER"
+        echo "Starting Clawforce..."
+        kubectl_cmd scale deployment/clawforce --replicas=1 -n "$NAMESPACE"
         ;;
     stop)
-        echo "Stopping $CONTAINER..."
-        $ENGINE stop "$CONTAINER"
-        ;;
-    clean)
-        echo "Cleaning $CONTAINER..."
-        $ENGINE stop "$CONTAINER" 2>/dev/null || true
-        $ENGINE rm "$CONTAINER" 2>/dev/null || true
-        echo "Cleaned."
+        echo "Stopping Clawforce..."
+        kubectl_cmd scale deployment/clawforce --replicas=0 -n "$NAMESPACE"
         ;;
     restart)
-        echo "Restarting $CONTAINER..."
-        $ENGINE restart "$CONTAINER"
+        echo "Restarting Clawforce..."
+        kubectl_cmd rollout restart deployment/clawforce -n "$NAMESPACE"
+        kubectl_cmd rollout status deployment/clawforce -n "$NAMESPACE" --timeout=60s
         ;;
     update)
-        if ! $ENGINE inspect "$CONTAINER" &>/dev/null; then
-            echo "Container '$CONTAINER' not found. Run the installer first."
-            exit 1
-        fi
-        IMAGE=$($ENGINE inspect --format '{{.Config.Image}}' "$CONTAINER")
+        echo "Updating Clawforce..."
+        IMAGE=$(kubectl_cmd get deployment/clawforce -n "$NAMESPACE" \
+            -o jsonpath='{.spec.template.spec.containers[0].image}')
         echo "Pulling $IMAGE..."
-        $ENGINE pull "$IMAGE"
-        echo "Recreating $CONTAINER..."
-        # Capture existing run config before removing
-        PORTS=$($ENGINE inspect --format '{{range $p, $conf := .HostConfig.PortBindings}}{{(index $conf 0).HostPort}}:{{$p}} {{end}}' "$CONTAINER" | tr -d '/')
-        DATA_VOL=$($ENGINE inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$CONTAINER")
-        ENVS=$($ENGINE inspect --format '{{range .Config.Env}}-e {{.}} {{end}}' "$CONTAINER")
-        HAS_SOCK=$($ENGINE inspect --format '{{range .Mounts}}{{.Source}}{{end}}' "$CONTAINER" | grep -c "docker.sock\|podman.sock" || true)
-        $ENGINE stop "$CONTAINER" 2>/dev/null || true
-        $ENGINE rm "$CONTAINER"
-        RUN_CMD="$ENGINE run -d --name $CONTAINER --restart unless-stopped"
-        for p in $PORTS; do RUN_CMD="$RUN_CMD -p $p"; done
-        if [ -n "$DATA_VOL" ]; then RUN_CMD="$RUN_CMD -v $DATA_VOL:/data"; fi
-        if [ "$HAS_SOCK" -gt 0 ]; then RUN_CMD="$RUN_CMD -v /var/run/docker.sock:/var/run/docker.sock"; fi
-        RUN_CMD="$RUN_CMD $ENVS $IMAGE"
-        eval "$RUN_CMD"
-        echo "Waiting for server to be ready..."
-        HOST_PORT=$(echo "$PORTS" | grep -oE '^[0-9]+' | head -1)
-        HOST_PORT="${HOST_PORT:-8080}"
-        for i in $(seq 1 30); do
-            if curl -sf "http://localhost:$HOST_PORT/api/health" &>/dev/null; then
-                echo "Clawforce updated and running on http://localhost:$HOST_PORT"
-                break
-            fi
-            if [ "$i" -eq 30 ]; then
-                echo "Server not responding after 30s. Check logs: clawforce logs"
-                exit 1
-            fi
-            sleep 1
-        done
+        command -v k3s &>/dev/null && sudo k3s crictl pull "$IMAGE" 2>/dev/null || true
+        kubectl_cmd rollout restart deployment/clawforce -n "$NAMESPACE"
+        kubectl_cmd rollout status deployment/clawforce -n "$NAMESPACE" --timeout=120s
+        NODE_PORT=$(kubectl_cmd get service/clawforce -n "$NAMESPACE" \
+            -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "30080")
+        echo "Clawforce updated and running on http://localhost:${NODE_PORT}"
         ;;
     logs)
-        $ENGINE logs -f "$CONTAINER"
+        kubectl_cmd logs -f deployment/clawforce -n "$NAMESPACE"
         ;;
     status)
-        $ENGINE ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        echo "=== Clawforce pod ==="
+        kubectl_cmd get pods -n "$NAMESPACE" -l app=clawforce
+        echo ""
+        echo "=== Agent pods ==="
+        kubectl_cmd get pods -n "$NAMESPACE" -l app=clawbot-agent 2>/dev/null || echo "(none)"
+        ;;
+    shell)
+        POD=$(kubectl_cmd get pods -n "$NAMESPACE" -l app=clawforce \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        [ -z "$POD" ] && { echo "No Clawforce pod found" >&2; exit 1; }
+        kubectl_cmd exec -it "$POD" -n "$NAMESPACE" -- /bin/bash
         ;;
     *)
-        echo "Unknown command: $1"
+        echo "Unknown command: $1" >&2
         show_help
         exit 1
         ;;
 esac
-EOF
+WRAPPER_EOF
+
     chmod +x "$tmpfile"
-    mv "$tmpfile" "$wrapper_path" 2>/dev/null || { rm -f "$tmpfile" 2>/dev/null; warn "Failed to install CLI wrapper."; return 1; }
+    mv "$tmpfile" "$wrapper_path" 2>/dev/null || {
+        rm -f "$tmpfile" 2>/dev/null
+        warn "Failed to move wrapper to $wrapper_path — skipping."
+        return 1
+    }
 
     if command_exists clawforce; then
-        success "CLI wrapper installed (run 'clawforce' to manage container)"
+        success "CLI wrapper installed at $wrapper_path"
     else
-        # $HOME/.local/bin is not in PATH — advise the user
         warn "'$install_dir' is not in your PATH."
         echo "  Add it by running:"
         echo ""
@@ -623,70 +765,21 @@ EOF
 install_cli_wrapper
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Run container
+# Wait for deployment
 # ─────────────────────────────────────────────────────────────────────────────
-info "Starting Clawforce on port $PORT..."
+info "Waiting for Clawforce to be ready..."
+kubectl_cmd rollout status deployment/clawforce -n "$NAMESPACE" --timeout=120s || \
+    warn "Rollout not complete within 120s — check: kubectl logs deployment/clawforce -n $NAMESPACE"
 
-RUN_ARGS=(
-    -d
-    -p "$PORT:8080"
-    -e "ADMIN_SETUP_USERNAME=$ADMIN_USER"
-    -e "ADMIN_SETUP_PASSWORD=$ADMIN_PASS"
-    -e "AGENT_IMAGE=$IMAGE"
-    -e "AGENT_STORAGE_HOST_PATH=$DATA_DIR"
-    -v "$DATA_DIR:/data"
-    --name "$CONTAINER"
-    --restart unless-stopped
-)
-
-if $PROCESS_RUNTIME; then
-    info "Using process runtime (no container isolation for agents)"
-    RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=process")
-else
-    info "Using container isolation for agents"
-    if [ "$ENGINE" = "podman" ]; then
-        # Detect podman socket path to mount into the admin container.
-        # macOS: containers run inside a Linux VM — use the in-VM socket path.
-        # Linux: the socket is directly on the host filesystem.
-        if [ "$(uname -s)" = "Darwin" ]; then
-            PODMAN_ROOTFUL=$(podman machine inspect --format '{{.Rootful}}' 2>/dev/null || echo "true")
-            if [ "$PODMAN_ROOTFUL" = "true" ]; then
-                SOCK_PATH="/run/podman/podman.sock"
-            else
-                SOCK_PATH="/run/user/1000/podman/podman.sock"
-            fi
-            info "Using podman in-VM socket: $SOCK_PATH"
-        else
-            SOCK_PATH="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
-            if [ ! -S "$SOCK_PATH" ]; then
-                warn "Podman socket not found at $SOCK_PATH"
-                warn "Ensure podman is running: systemctl --user enable --now podman.socket"
-                exit 1
-            fi
-            info "Using podman socket: $SOCK_PATH"
-        fi
-        RUN_ARGS+=(-v "$SOCK_PATH:/var/run/docker.sock")
-        RUN_ARGS+=(--security-opt label=disable)
-    else
-        RUN_ARGS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
-    fi
-fi
-
-engine_cmd run "${RUN_ARGS[@]}" "$IMAGE"
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Health check
-# ─────────────────────────────────────────────────────────────────────────────
-info "Waiting for server to be ready..."
 for i in $(seq 1 30); do
-    if curl -sf "http://localhost:$PORT/api/health" &>/dev/null; then
+    if curl -sf "http://localhost:${PORT}/api/health" &>/dev/null; then
         break
     fi
     if [ "$i" -eq 30 ]; then
-        warn "Server not responding after 30s"
-        echo ""
-        echo "Check logs with: $ENGINE logs $CONTAINER"
-        exit 1
+        warn "Server not responding on port $PORT after 30s"
+        echo "  Logs: kubectl logs deployment/clawforce -n $NAMESPACE"
+        break
     fi
     sleep 1
 done
@@ -697,26 +790,34 @@ done
 echo ""
 success "Clawforce is running!"
 echo ""
-echo "  ┌─────────────────────────────────────────────────────────────────┐"
-echo "  │                                                                 │"
-echo "  │   Dashboard:    $(printf '\033]8;;http://localhost:%s\033\\http://localhost:%s\033]8;;\033\\' "$PORT" "$PORT")                          │"
-echo "  │   Username:     $ADMIN_USER                                     │"
-echo "  │   Password:     $ADMIN_PASS                                     │"
-echo "  │   Data:         $DATA_DIR                                       │"
-echo "  │                                                                 │"
-echo "  └─────────────────────────────────────────────────────────────────┘"
+echo "  ┌────────────────────────────────────────────────────────────────┐"
+echo "  │                                                                │"
+printf "  │   Dashboard:  http://localhost:%-5s                          │\n" "$PORT"
+printf "  │   Username:   %-48s│\n" "$ADMIN_USER"
+printf "  │   Password:   %-48s│\n" "$ADMIN_PASS"
+printf "  │   Data:       %-48s│\n" "$DATA_DIR"
+printf "  │   Namespace:  %-48s│\n" "$NAMESPACE"
+echo "  │                                                                │"
+echo "  └────────────────────────────────────────────────────────────────┘"
 if [ "$ADMIN_PASS" = "admin" ]; then
     echo ""
-    warn "Default password 'admin' is in use — change it immediately after first login."
+    warn "Default password 'admin' is in use — change it after first login."
 fi
 echo ""
 echo "  Commands:"
-echo "    Logs:           clawforce logs"
-echo "    Stop:           clawforce stop"
-echo "    Start:          clawforce start"
-echo "    Status:         clawforce status"
-echo "    Update:         clawforce update"
-echo "    Uninstall:      curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash -s -- --uninstall"
+echo "    clawforce logs     — stream pod logs"
+echo "    clawforce stop     — scale to 0 replicas"
+echo "    clawforce start    — scale to 1 replica"
+echo "    clawforce status   — show pod status"
+echo "    clawforce update   — pull latest image and restart"
 echo ""
-echo "  Documentation:    https://github.com/saolalab/clawforce"
+UNINSTALL_URL="https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh"
+echo "  Uninstall:"
+echo "    curl -fsSL $UNINSTALL_URL | bash -s -- --uninstall"
+echo ""
+echo "  kubectl shortcuts:"
+echo "    kubectl get pods -n $NAMESPACE"
+echo "    kubectl logs -f deployment/clawforce -n $NAMESPACE"
+echo ""
+echo "  Documentation: https://github.com/saolalab/clawforce"
 echo ""

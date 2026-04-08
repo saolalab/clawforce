@@ -1,37 +1,24 @@
 #!/usr/bin/env bash
 #
-# Local Docker dev workflow: rebuild image, cleanup old containers, run fresh.
+# Local k3s dev workflow: build image, import into k3s, apply manifests, run.
 #
 # Usage:
-#   ./scripts/dev.sh              # full rebuild + run
-#   ./scripts/dev.sh --no-build   # skip build, just restart container
-#   ./scripts/dev.sh --clean      # stop everything + remove data volume
-#   ./scripts/dev.sh --logs       # tail logs after starting
+#   ./scripts/dev.sh              # full rebuild + deploy
+#   ./scripts/dev.sh --no-build   # skip build, restart pod only
+#   ./scripts/dev.sh --clean      # wipe data + redeploy
+#   ./scripts/dev.sh --logs       # tail logs after deploying
 #
 set -euo pipefail
 
 # ── Config (override via env) ────────────────────────────────────────────────
-IMAGE="${IMAGE:-clawforce:latest}"
-CONTAINER="${CONTAINER:-clawforce}"
+IMAGE="${IMAGE:-clawforce:dev}"
+CONTAINER="${CONTAINER:-clawforce}"     # deployment name
+NAMESPACE="${NAMESPACE:-clawforce}"
 DATA_DIR="${DATA_DIR:-./data}"
-PORT="${PORT:-8080}"
+PORT="${PORT:-30080}"                   # k3s NodePort
 ADMIN_USER="${ADMIN_SETUP_USERNAME:-admin}"
 ADMIN_PASS="${ADMIN_SETUP_PASSWORD:-admin}"
-# Stable JWT secret so browser tokens survive container restarts.
-# Override via env for production; this default is fine for local dev.
 JWT_SECRET="${ADMIN_JWT_SECRET:-clawforce-local-dev-secret-do-not-use-in-prod}"
-
-# ── Container engine: docker (default) or podman ────────────────────────────
-if [ -n "$CLAWFORCE_ENGINE" ]; then
-    ENGINE="$CLAWFORCE_ENGINE"
-elif command -v docker &>/dev/null; then
-    ENGINE="docker"
-elif command -v podman &>/dev/null; then
-    ENGINE="podman"
-else
-    echo "Error: neither docker nor podman found in PATH"
-    exit 1
-fi
 
 # ── Flags ────────────────────────────────────────────────────────────────────
 DO_BUILD=true
@@ -46,16 +33,16 @@ for arg in "$@"; do
     -h|--help)
       echo "Usage: $0 [--no-build] [--clean] [--logs]"
       echo ""
-      echo "  --no-build   Skip Docker image build (reuse existing image)"
-      echo "  --clean      Remove data directory (fresh start, wipes agents/config)"
-      echo "  --logs       Tail container logs after starting"
+      echo "  --no-build   Skip image build (reuse existing image)"
+      echo "  --clean      Remove data directory (fresh start)"
+      echo "  --logs       Tail pod logs after deploying"
       echo ""
       echo "Environment overrides:"
-      echo "  IMAGE=...              Container image name  (default: clawforce:latest)"
-      echo "  PORT=...               Host port             (default: 8080)"
-      echo "  ADMIN_JWT_SECRET=...   JWT signing secret    (stable default for local dev)"
-      echo "  PROCESS_POOL=true      Use process pool instead of container isolation"
-      echo "  CLAWFORCE_ENGINE=...   Container engine: docker or podman (default: auto-detect)"
+      echo "  IMAGE=...              Image name  (default: clawforce:dev)"
+      echo "  PORT=...               NodePort     (default: 30080)"
+      echo "  ADMIN_JWT_SECRET=...   JWT secret  (stable dev default)"
+      echo "  PROCESS_POOL=true      Use process pool instead of k8s pod isolation"
+      echo "  NAMESPACE=...          k8s namespace (default: clawforce)"
       exit 0
       ;;
   esac
@@ -69,135 +56,224 @@ info()  { printf "\033[1;34m▸ %s\033[0m\n" "$*"; }
 ok()    { printf "\033[1;32m✓ %s\033[0m\n" "$*"; }
 warn()  { printf "\033[1;33m⚠ %s\033[0m\n" "$*"; }
 
-stop_container() {
-  local name="$1"
-  if $ENGINE inspect "$name" &>/dev/null; then
-    info "Stopping $name ..."
-    $ENGINE stop "$name" 2>/dev/null || true
-    $ENGINE rm -f "$name" 2>/dev/null || true
-    ok "Removed $name"
-  fi
+kubectl_cmd() {
+    if command -v kubectl &>/dev/null; then
+        kubectl "$@"
+    elif [ -f /usr/local/bin/k3s ]; then
+        /usr/local/bin/k3s kubectl "$@"
+    else
+        echo "Error: kubectl not found in PATH"
+        exit 1
+    fi
 }
 
-# ── Pre-flight: container engine ─────────────────────────────────────────────
-if ! $ENGINE info &>/dev/null; then
-  warn "$ENGINE is not running. Please start it and retry."
-  exit 1
+# ── Pre-flight: k3s / kubectl ─────────────────────────────────────────────────
+if ! kubectl_cmd cluster-info &>/dev/null; then
+    warn "k3s cluster not reachable. Please start k3s:"
+    echo "  Linux: sudo systemctl start k3s"
+    echo "  macOS: start Rancher Desktop or run: k3d cluster create"
+    exit 1
 fi
+ok "k3s cluster is reachable"
 
-# ── Stop agent worker containers (clawbot-agent-*) ──────────────────────────
-AGENT_CONTAINERS=$($ENGINE ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true)
-if [ -n "$AGENT_CONTAINERS" ]; then
-  info "Stopping orphaned agent worker containers ..."
-  echo "$AGENT_CONTAINERS" | xargs $ENGINE rm -f 2>/dev/null || true
-  ok "Agent workers cleaned up"
-fi
-
-# ── Stop main container ─────────────────────────────────────────────────────
-stop_container "$CONTAINER"
-
-# Also kill any container using our port (unnamed runs from earlier)
-PORT_CONTAINER=$($ENGINE ps -q --filter "publish=$PORT" 2>/dev/null || true)
-if [ -n "$PORT_CONTAINER" ]; then
-  info "Stopping container(s) on port $PORT ..."
-  echo "$PORT_CONTAINER" | xargs $ENGINE rm -f 2>/dev/null || true
-fi
-
-# ── Resolve DATA_DIR to absolute path ────────────────────────────────────────
+# ── Resolve DATA_DIR to absolute path ─────────────────────────────────────────
 DATA_DIR="$(cd "$PROJECT_ROOT" && mkdir -p "$DATA_DIR" && cd "$DATA_DIR" && pwd)"
 
-# ── Optional: wipe data directory ────────────────────────────────────────────
+# ── Optional: wipe data directory ─────────────────────────────────────────────
 if $DO_CLEAN_DATA; then
-  warn "Removing data directory $DATA_DIR (all agent data will be lost) ..."
-  rm -rf "$DATA_DIR"
-  mkdir -p "$DATA_DIR"
-  ok "Data directory wiped"
+    warn "Removing data directory $DATA_DIR ..."
+    rm -rf "$DATA_DIR"
+    mkdir -p "$DATA_DIR"
+    ok "Data directory wiped"
 fi
 
-# ── Build ────────────────────────────────────────────────────────────────────
+# ── Build ─────────────────────────────────────────────────────────────────────
 if $DO_BUILD; then
-  info "Building $IMAGE ..."
-  $ENGINE build -t "$IMAGE" -f "$PROJECT_ROOT/deploy/Dockerfile" "$PROJECT_ROOT"
-  ok "Image built: $IMAGE"
-else
-  info "Skipping build (--no-build)"
-fi
-
-# ── Run ──────────────────────────────────────────────────────────────────────
-info "Starting $CONTAINER on port $PORT ..."
-
-RUN_ARGS=(
-  -d
-  -p "$PORT:8080"
-  -e ADMIN_SETUP_USERNAME="$ADMIN_USER"
-  -e ADMIN_SETUP_PASSWORD="$ADMIN_PASS"
-  -e ADMIN_JWT_SECRET="$JWT_SECRET"
-  -e AGENT_IMAGE="$IMAGE"
-  -e AGENT_STORAGE_HOST_PATH="$DATA_DIR"
-  -v "$DATA_DIR":/data
-  --name "$CONTAINER"
-)
-
-# Docker needs explicit host mapping; podman resolves host.docker.internal natively
-if [ "$ENGINE" = "docker" ]; then
-  RUN_ARGS+=(--add-host host.docker.internal:host-gateway)
-fi
-
-if [ "${PROCESS_POOL:-false}" = "true" ]; then
-    info "Using process pool (no container isolation for agents)"
-    RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=process")
-else
-    info "Using container pool (one container per agent)"
-    RUN_ARGS+=(-e "ADMIN_RUNTIME_BACKEND=docker")
-    if [ "$ENGINE" = "podman" ]; then
-        # Detect podman socket path to mount into the admin container.
-        # macOS: containers run inside a Linux VM. The host-side socket
-        #   (e.g. /var/folders/.../podman-machine-default-api.sock) is NOT
-        #   visible inside the VM. We must use the in-VM path instead.
-        # Linux: the socket is directly on the host filesystem.
-        if [ "$(uname -s)" = "Darwin" ]; then
-            # Rootful VM: /run/podman/podman.sock   Rootless VM: /run/user/1000/podman/podman.sock
-            PODMAN_ROOTFUL=$(podman machine inspect --format '{{.Rootful}}' 2>/dev/null || echo "true")
-            if [ "$PODMAN_ROOTFUL" = "true" ]; then
-                SOCK_PATH="/run/podman/podman.sock"
-            else
-                SOCK_PATH="/run/user/1000/podman/podman.sock"
-            fi
-            info "Using podman in-VM socket: $SOCK_PATH"
-        else
-            SOCK_PATH="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
-            if [ ! -S "$SOCK_PATH" ]; then
-                warn "Podman socket not found at $SOCK_PATH"
-                warn "Ensure podman is running: systemctl --user enable --now podman.socket"
-                exit 1
-            fi
-            info "Using podman socket: $SOCK_PATH"
-        fi
-        RUN_ARGS+=(-v "$SOCK_PATH:/var/run/docker.sock")
-        RUN_ARGS+=(--security-opt label=disable)
+    # Detect image builder: nerdctl (Rancher Desktop) > docker
+    if command -v nerdctl &>/dev/null; then
+        BUILDER="nerdctl"
+    elif command -v docker &>/dev/null; then
+        BUILDER="docker"
     else
-        RUN_ARGS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
+        warn "Neither nerdctl nor docker found. Install one to build images."
+        exit 1
     fi
+
+    info "Building $IMAGE with $BUILDER ..."
+    $BUILDER build -t "$IMAGE" -f "$PROJECT_ROOT/deploy/Dockerfile" "$PROJECT_ROOT"
+    ok "Image built: $IMAGE"
+
+    # Import image into k3s containerd so pods can use it
+    info "Importing $IMAGE into k3s containerd ..."
+    if command -v nerdctl &>/dev/null; then
+        # Rancher Desktop: nerdctl images are already in containerd used by k3s
+        ok "Image already in k3s containerd (nerdctl shares the same containerd)"
+    elif command -v docker &>/dev/null && command -v k3s &>/dev/null; then
+        docker save "$IMAGE" | sudo k3s ctr images import -
+        ok "Image imported into k3s"
+    elif command -v k3d &>/dev/null; then
+        k3d image import "$IMAGE"
+        ok "Image imported via k3d"
+    else
+        warn "Could not import image into k3s containerd automatically."
+        warn "You may need to run: docker save $IMAGE | sudo k3s ctr images import -"
+    fi
+else
+    info "Skipping build (--no-build)"
 fi
 
-$ENGINE run "${RUN_ARGS[@]}" "$IMAGE"
+# ── Ensure namespace and RBAC ─────────────────────────────────────────────────
+kubectl_cmd apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $NAMESPACE
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clawforce
+  namespace: $NAMESPACE
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clawforce-pod-manager
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "namespaces"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clawforce-pod-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clawforce-pod-manager
+subjects:
+  - kind: ServiceAccount
+    name: clawforce
+    namespace: $NAMESPACE
+EOF
+ok "Namespace and RBAC ready"
 
-# ── Health check ─────────────────────────────────────────────────────────────
+# ── Stop agent worker pods ─────────────────────────────────────────────────────
+AGENT_PODS=$(kubectl_cmd get pods -n "$NAMESPACE" -l app=clawbot-agent \
+    -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+if [ -n "$AGENT_PODS" ]; then
+    info "Removing agent worker pods ..."
+    kubectl_cmd delete pods -n "$NAMESPACE" -l app=clawbot-agent --grace-period=0 2>/dev/null || true
+    ok "Agent pods removed"
+fi
+
+# ── Determine runtime backend ─────────────────────────────────────────────────
+if [ "${PROCESS_POOL:-false}" = "true" ]; then
+    info "Using process pool (no pod isolation for agents)"
+    RUNTIME_BACKEND="process"
+else
+    info "Using k8s pod isolation (one pod per agent)"
+    RUNTIME_BACKEND="k8s"
+fi
+
+# Use Never pull policy for locally built images
+IMAGE_PULL_POLICY="Never"
+
+# ── Deploy ────────────────────────────────────────────────────────────────────
+info "Deploying $CONTAINER on NodePort $PORT ..."
+
+kubectl_cmd apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: $CONTAINER
+  namespace: $NAMESPACE
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: $CONTAINER
+  template:
+    metadata:
+      labels:
+        app: $CONTAINER
+    spec:
+      serviceAccountName: clawforce
+      containers:
+        - name: $CONTAINER
+          image: $IMAGE
+          imagePullPolicy: $IMAGE_PULL_POLICY
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ADMIN_SETUP_USERNAME
+              value: "$ADMIN_USER"
+            - name: ADMIN_SETUP_PASSWORD
+              value: "$ADMIN_PASS"
+            - name: ADMIN_JWT_SECRET
+              value: "$JWT_SECRET"
+            - name: ADMIN_RUNTIME_BACKEND
+              value: "$RUNTIME_BACKEND"
+            - name: K8S_NAMESPACE
+              value: "$NAMESPACE"
+            - name: ADMIN_STORAGE_ROOT
+              value: "/data"
+            - name: ADMIN_PUBLIC_URL
+              value: "http://clawforce.$NAMESPACE.svc.cluster.local:8080"
+            - name: AGENT_IMAGE
+              value: "$IMAGE"
+            - name: AGENT_IMAGE_PULL_POLICY
+              value: "$IMAGE_PULL_POLICY"
+            - name: AGENT_STORAGE_HOST_PATH
+              value: "$DATA_DIR"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          hostPath:
+            path: $DATA_DIR
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: $CONTAINER
+  namespace: $NAMESPACE
+spec:
+  selector:
+    app: $CONTAINER
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: $PORT
+  type: NodePort
+EOF
+
+# ── Restart to pick up new image ──────────────────────────────────────────────
+kubectl_cmd rollout restart deployment/"$CONTAINER" -n "$NAMESPACE"
+
+# ── Health check ──────────────────────────────────────────────────────────────
 info "Waiting for server to be ready ..."
-for i in $(seq 1 15); do
-  if curl -sf "http://localhost:$PORT/api/health" &>/dev/null; then
-    ok "Server is up at http://localhost:$PORT"
-    break
-  fi
-  if [ "$i" -eq 15 ]; then
-    warn "Server not responding after 15s — check logs: $ENGINE logs $CONTAINER"
-  fi
-  sleep 1
+kubectl_cmd rollout status deployment/"$CONTAINER" -n "$NAMESPACE" --timeout=90s || \
+    warn "Deployment not ready within 90s"
+
+for i in $(seq 1 20); do
+    if curl -sf "http://localhost:$PORT/api/health" &>/dev/null; then
+        ok "Server is up at http://localhost:$PORT"
+        break
+    fi
+    if [ "$i" -eq 20 ]; then
+        warn "Server not responding after 20s — check: kubectl logs deployment/$CONTAINER -n $NAMESPACE"
+    fi
+    sleep 1
 done
 
-# ── Optional: tail logs ──────────────────────────────────────────────────────
+# ── Optional: tail logs ───────────────────────────────────────────────────────
 if $DO_LOGS; then
-  echo ""
-  info "Tailing logs (Ctrl+C to stop) ..."
-  $ENGINE logs -f "$CONTAINER"
+    echo ""
+    info "Tailing logs (Ctrl+C to stop) ..."
+    kubectl_cmd logs -f deployment/"$CONTAINER" -n "$NAMESPACE"
 fi

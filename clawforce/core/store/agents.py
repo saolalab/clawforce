@@ -9,7 +9,7 @@ from clawforce.core.services.workspace_service import WorkspaceService
 from clawforce.core.storage import StorageBackend
 from clawforce.core.store.base import BaseRepository
 
-VALID_MODES = frozenset({"", "process", "docker"})
+VALID_MODES = frozenset({"", "process", "k8s"})
 
 # Identity, layout, and creation-audit fields may not be changed via update_agent().
 # All other AgentDef fields are updatable (derived from model, so new fields are allowed by default).

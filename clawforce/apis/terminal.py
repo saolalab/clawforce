@@ -1,7 +1,7 @@
-"""WebSocket endpoint for admin terminal (exec into Docker container or local shell).
+"""WebSocket endpoint for admin terminal (exec into k8s pod or local shell).
 
 Uses runtime.supports_terminal() and runtime.get_terminal_target() so no runtime backend
-is imported at module level. Bridge logic lives in clawforce.core.runtimes.docker
+is imported at module level. Bridge logic lives in clawforce.core.runtimes.k8s
 and clawforce.core.runtimes.local and is imported only when the corresponding
 backend is used.
 """
@@ -65,10 +65,10 @@ async def terminal_ws(
 
     kind, target = target_info
     try:
-        if kind == "docker":
-            from clawforce.core.runtimes.docker import bridge_docker_terminal
+        if kind == "k8s":
+            from clawforce.core.runtimes.k8s import bridge_k8s_terminal
 
-            await bridge_docker_terminal(websocket, target, agent_id)
+            await bridge_k8s_terminal(websocket, target, agent_id)
         elif kind == "local":
             from clawforce.core.runtimes.local import bridge_local_terminal
 

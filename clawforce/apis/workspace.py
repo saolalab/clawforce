@@ -60,8 +60,8 @@ async def list_files(
         )
         if "not connected" in detail.lower():
             detail += (
-                " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
             )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -96,8 +96,8 @@ async def read_file(
         detail = str(exc)
         if "not connected" in detail.lower():
             detail += (
-                " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
             )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -154,8 +154,8 @@ async def write_file(
         detail = str(exc)
         if "not connected" in detail.lower():
             detail += (
-                " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
             )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -194,8 +194,8 @@ async def delete_file(
         detail = str(exc)
         if "not connected" in detail.lower():
             detail += (
-                " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
             )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -237,8 +237,8 @@ async def rename_file(
         detail = str(exc)
         if "not connected" in detail.lower():
             detail += (
-                " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
             )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -282,8 +282,8 @@ async def move_file(
         detail = str(exc)
         if "not connected" in detail.lower():
             detail += (
-                " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
             )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -325,8 +325,8 @@ async def download_folder_zip(
             detail = str(exc)
             if "not connected" in detail.lower():
                 detail += (
-                    " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                    "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                    " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                    "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
                 )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -341,8 +341,8 @@ async def download_folder_zip(
             detail = str(exc)
             if "not connected" in detail.lower():
                 detail += (
-                    " In Docker mode, set ADMIN_PUBLIC_URL to a URL reachable from the agent container "
-                    "(e.g. http://host.docker.internal:8080 on Mac/Windows)."
+                    " In k8s mode, set ADMIN_PUBLIC_URL to the k8s service URL"
+                    "(e.g. http://clawforce.clawforce.svc.cluster.local:8080)."
                 )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

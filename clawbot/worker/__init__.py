@@ -1,4 +1,4 @@
-"""Agent worker: standalone process for local/docker pool backends.
+"""Agent worker: standalone process for local/k8s pool backends.
 
 Structure:
   context.py    - WorkerContext dataclass (runtime component bundle)

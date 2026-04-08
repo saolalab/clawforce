@@ -1,6 +1,6 @@
 #!/bin/sh
 # All-in-one entrypoint: optional setup, then exec CMD.
-# Docker pool uses the same image (AGENT_IMAGE) for worker containers.
+# k8s runtime uses the same image (AGENT_IMAGE) for agent worker pods.
 
 set -e
 

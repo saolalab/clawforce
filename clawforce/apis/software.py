@@ -158,8 +158,8 @@ async def install_software(
     if type(runtime).__name__ == "LocalRuntime":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Software installation is only available in Docker mode. "
-            "Switch to Docker runtime backend first.",
+            detail="Software installation is only available in k8s pod mode. "
+            "Switch to k8s runtime backend first.",
         )
     agent = store.get_agent(agent_id)
     if not agent:
@@ -255,8 +255,8 @@ async def uninstall_software(
     if type(runtime).__name__ == "LocalRuntime":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Software uninstallation is only available in Docker mode. "
-            "Switch to Docker runtime backend first.",
+            detail="Software uninstallation is only available in k8s pod mode. "
+            "Switch to k8s runtime backend first.",
         )
     agent = store.get_agent(agent_id)
     if not agent:

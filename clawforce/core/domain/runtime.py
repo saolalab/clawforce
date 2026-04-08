@@ -30,11 +30,11 @@ class AgentStatus:
 
 
 class AgentRuntimeBackend(ABC):
-    """Runtime backend for agent workloads (process, docker, k8s, etc.).
+    """Runtime backend for agent workloads (process, k8s, etc.).
 
     Like a container runtime or scheduler: the control plane uses the runtime to
     start/stop agent instances and to read/write agent data (config, workspace,
-    profiles). For process/docker backends the runtime talks to the worker over WebSocket.
+    profiles). For process/k8s backends the runtime talks to the worker over WebSocket.
     """
 
     @abstractmethod
@@ -72,13 +72,13 @@ class AgentRuntimeBackend(ABC):
         """
 
     def supports_terminal(self) -> bool:
-        """Return True if this runtime supports the terminal WebSocket (e.g. Docker exec, local PTY)."""
+        """Return True if this runtime supports the terminal WebSocket (e.g. k8s exec, local PTY)."""
         return False
 
     def get_terminal_target(self, agent_id: str) -> tuple[str, Any] | None:
         """Return (kind, target) for terminal bridge, or None if agent not running or terminal unsupported.
 
-        kind is \"docker\" (target is container) or \"local\" (target is agent_root path str).
+        kind is \"k8s\" (target is pod_name str) or \"local\" (target is agent_root path str).
         """
         return None
 

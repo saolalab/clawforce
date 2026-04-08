@@ -52,14 +52,16 @@ ignore = [
 "clawlib/channels/zalouser.py" = ["PLC0415"]
 # Factory pattern: only import the selected runtime backend
 "clawforce/core/runtimes/factory.py" = ["PLC0415"]
-# Optional docker SDK (admin-docker extra)
-"clawforce/core/runtimes/docker.py" = ["PLC0415"]
+# Optional kubernetes SDK (k8s runtime backend)
+"clawforce/core/runtimes/k8s.py" = ["PLC0415"]
 # Local runtime: platform-specific imports (fcntl/termios for PTY resize)
 "clawforce/core/runtimes/local.py" = ["PLC0415"]
 # Deps: lazy registry imports (optional clawlib)
 "clawforce/deps.py" = ["PLC0415"]
-# Terminal API: factory pattern for terminal backends (docker/local)
+# Terminal API: factory pattern for terminal backends (k8s/local)
 "clawforce/apis/terminal.py" = ["PLC0415"]
+# Providers API: optional kubernetes SDK for OAuth callback pod
+"clawforce/apis/providers.py" = ["PLC0415"]
 # Optional cron dependency (croniter try/except)
 "clawbot/core/cron/service.py" = ["PLC0415"]
 # MCP: streamable_http_client conditional import (may not exist in all mcp versions)

@@ -316,8 +316,8 @@ class ControlPlaneConfig(Base):
     heartbeat_interval: int = 30
 
 
-class DockerSecurityConfig(Base):
-    """Docker container security. level: permissive | sandboxed | privileged."""
+class K8sSecurityConfig(Base):
+    """Container security config for k8s (k3s) runtime. level: permissive | sandboxed | privileged."""
 
     level: str = "permissive"
     read_only: bool | None = None
@@ -330,7 +330,7 @@ class DockerSecurityConfig(Base):
 
 
 class SecurityConfig(Base):
-    docker: DockerSecurityConfig = Field(default_factory=DockerSecurityConfig)
+    k8s: K8sSecurityConfig = Field(default_factory=K8sSecurityConfig)
 
 
 class SecretsConfig(Base):

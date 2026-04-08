@@ -1,6 +1,6 @@
 """Process log store: RAM ring buffer + file persistence for real-time streaming.
 
-Used for Docker runtime: control plane appends lines when streaming from container.
+Used for k8s runtime: control plane appends lines when streaming from pod logs.
 Local runtime writes directly to worker.log; no store involvement.
 """
 

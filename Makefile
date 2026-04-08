@@ -3,13 +3,15 @@
 # Development:   make dev        (or: make backend + make frontend in two terminals)
 # Docs preview:  make docs       (VitePress at http://localhost:4173/clawforce/)
 # Production:    make install && clawforce setup && clawforce serve
-# Container:     make container  (uses docker by default, set ENGINE=podman for podman)
-# Stop/cleanup:  make container-stop  (stops and removes all clawforce + agent containers)
+# k3s deploy:    make pod        (build + import into k3s + kubectl apply)
+# Stop/cleanup:  make pod-stop   (removes all clawforce + agent pods)
 
-# Container engine: docker (default) or podman
-ENGINE ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
+# Kubernetes namespace
+NAMESPACE ?= clawforce
+# kubectl command (falls back to k3s kubectl)
+KUBECTL ?= $(shell command -v kubectl >/dev/null 2>&1 && echo kubectl || echo /usr/local/bin/k3s kubectl)
 
-.PHONY: install dev backend frontend docs docs-dev setup build test lint lint-fix format clean user-list user-create user-update user-set-password container container-nobuild container-clean container-logs container-stop
+.PHONY: install dev backend frontend docs docs-dev setup build test lint lint-fix format clean user-list user-create user-update user-set-password pod pod-nobuild pod-clean pod-logs pod-stop
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Installation
@@ -95,27 +97,26 @@ format:
 	uv run ruff format .
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Container (local) — set ENGINE=podman to use podman
+# k3s / Kubernetes (local dev) — requires k3s, Rancher Desktop, or k3d
 # ─────────────────────────────────────────────────────────────────────────────
 
-container:
-	CLAWFORCE_ENGINE=$(ENGINE) ./scripts/dev.sh --logs
+pod:
+	./scripts/dev.sh --logs
 
-container-nobuild:
-	CLAWFORCE_ENGINE=$(ENGINE) ./scripts/dev.sh --no-build --logs
+pod-nobuild:
+	./scripts/dev.sh --no-build --logs
 
-container-clean:
-	CLAWFORCE_ENGINE=$(ENGINE) ./scripts/dev.sh --clean --logs
+pod-clean:
+	./scripts/dev.sh --clean --logs
 
-container-logs:
-	$(ENGINE) logs -f clawforce
+pod-logs:
+	$(KUBECTL) logs -f deployment/clawforce -n $(NAMESPACE)
 
-container-stop:
-	@echo "Stopping and removing clawforce containers..."
-	-@AGENTS=$$($(ENGINE) ps -aq --filter "name=clawbot-agent-" 2>/dev/null || true); \
-	  [ -n "$$AGENTS" ] && echo "$$AGENTS" | xargs $(ENGINE) rm -f 2>/dev/null || true
-	-@$(ENGINE) stop clawforce 2>/dev/null || true
-	-@$(ENGINE) rm -f clawforce 2>/dev/null || true
+pod-stop:
+	@echo "Stopping and removing clawforce pods..."
+	-@$(KUBECTL) delete pods -n $(NAMESPACE) -l app=clawbot-agent --grace-period=0 2>/dev/null || true
+	-@$(KUBECTL) delete pods -n $(NAMESPACE) -l app=clawforce-oauth-cb --grace-period=0 2>/dev/null || true
+	-@$(KUBECTL) scale deployment/clawforce --replicas=0 -n $(NAMESPACE) 2>/dev/null || true
 	@echo "Done."
 
 # ─────────────────────────────────────────────────────────────────────────────

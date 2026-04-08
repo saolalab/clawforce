@@ -1,11 +1,13 @@
 """Minimal OAuth callback HTTP server.
 
-Run as an ephemeral Docker container by clawforce during an OAuth login flow::
+Run as an ephemeral k8s pod by clawforce during an OAuth login flow.
+The pod is spawned automatically by clawforce/apis/providers.py via the
+kubernetes client. For manual testing::
 
-    docker run --rm -p 1455:1455 \\
-        -e OAUTH_NOTIFY_URL=http://host.docker.internal:8080/api/providers/oauth/internal/deliver \\
-        -e OAUTH_PORT=1455 \\
-        clawforce:latest python -m clawforce.oauth_callback_server
+    kubectl run oauth-cb --image=ghcr.io/saolalab/clawforce:latest --restart=Never \\
+        --env OAUTH_NOTIFY_URL=http://clawforce.clawforce.svc.cluster.local:8080/api/providers/oauth/internal/deliver \\
+        --env OAUTH_PORT=1455 \\
+        -- python -m clawforce.oauth_callback_server
 
 Environment variables
 ---------------------

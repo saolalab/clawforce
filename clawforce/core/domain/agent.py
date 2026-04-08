@@ -35,7 +35,7 @@ class AgentDef(Base):
     status: str = "stopped"
     base_path: str = ""  # {agent_id}/ — root for all agent data
     agent_token: str = ""
-    # Execution mode: "process" (subprocess), "docker" (container), or "" (use app default)
+    # Execution mode: "process" (subprocess), "k8s" (pod), or "" (use app default)
     mode: str = ""
     onboarding_completed: bool = False
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

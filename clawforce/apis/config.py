@@ -188,7 +188,7 @@ async def put_admin_settings(
 
     Allows admins to configure deployment-level settings without re-running
     the installer. Changes persist to admin_settings.json but may require
-    container restart to take effect.
+    a pod restart to take effect.
     """
     try:
         settings = _load_admin_settings(storage)
@@ -201,7 +201,7 @@ async def put_admin_settings(
         settings_json = json.dumps(settings, indent=2)
         storage.write_sync(ADMIN_SETTINGS_FILE, settings_json.encode("utf-8"))
         result = redact(settings)
-        result["_meta"] = {"message": "Settings updated (restart container to apply changes)"}
+        result["_meta"] = {"message": "Settings updated (restart pod to apply changes)"}
         return result
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

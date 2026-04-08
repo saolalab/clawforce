@@ -7,13 +7,13 @@ from clawlib.config.schema import (
     Config,
     ControlPlaneConfig,
     DiscordConfig,
-    DockerSecurityConfig,
     EmailConfig,
     ExecToolConfig,
     FaultToleranceConfig,
     FeishuConfig,
     GatewayConfig,
     HeartbeatConfig,
+    K8sSecurityConfig,
     MCPServerConfig,
     ProviderConfig,
     ProvidersConfig,
@@ -426,12 +426,12 @@ class TestControlPlaneConfig:
         assert cfg.heartbeat_interval == 60
 
 
-class TestDockerSecurityConfig:
-    """Tests for DockerSecurityConfig model."""
+class TestK8sSecurityConfig:
+    """Tests for K8sSecurityConfig model."""
 
     def test_defaults(self):
-        """DockerSecurityConfig should have correct defaults."""
-        cfg = DockerSecurityConfig()
+        """K8sSecurityConfig should have correct defaults."""
+        cfg = K8sSecurityConfig()
         assert cfg.level == "permissive"
         assert cfg.read_only is None
         assert cfg.network_mode is None
@@ -441,8 +441,8 @@ class TestDockerSecurityConfig:
         assert cfg.cpu_period is None
 
     def test_custom_values(self):
-        """DockerSecurityConfig should accept custom values."""
-        cfg = DockerSecurityConfig(
+        """K8sSecurityConfig should accept custom values."""
+        cfg = K8sSecurityConfig(
             level="sandboxed",
             read_only=True,
             network_mode="none",
@@ -466,5 +466,5 @@ class TestSecurityConfig:
     def test_defaults(self):
         """SecurityConfig should have correct defaults."""
         cfg = SecurityConfig()
-        assert isinstance(cfg.docker, DockerSecurityConfig)
-        assert cfg.docker.level == "permissive"
+        assert isinstance(cfg.k8s, K8sSecurityConfig)
+        assert cfg.k8s.level == "permissive"

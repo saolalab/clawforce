@@ -2,7 +2,7 @@
 
 Backends:
 - process (default): one agent per subprocess (minimal isolation).
-- docker: one agent per container (full isolation).
+- k8s: one agent per pod in a Kubernetes cluster (k3s or any k8s distribution).
 """
 
 import os
@@ -11,7 +11,7 @@ from typing import Any
 from clawforce.core.domain.runtime import AgentRuntimeBackend
 from clawforce.core.storage import StorageBackend, get_storage_backend
 
-RUNTIME_BACKENDS = ("process", "docker")
+RUNTIME_BACKENDS = ("process", "k8s")
 
 
 def get_runtime_backend(
@@ -36,10 +36,10 @@ def get_runtime_backend(
             ws_manager=ws_manager,
             activity_registry=activity_registry,
         )
-    if kind == "docker":
-        from clawforce.core.runtimes.docker import DockerRuntime
+    if kind in ("k8s", "kubernetes"):
+        from clawforce.core.runtimes.k8s import K8sRuntime
 
-        return DockerRuntime(
+        return K8sRuntime(
             storage=storage,
             ws_manager=ws_manager,
             activity_registry=activity_registry,

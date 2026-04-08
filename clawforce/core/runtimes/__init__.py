@@ -1,6 +1,6 @@
 """Runtime implementations and factory.
 
-Import runtime classes lazily to avoid requiring optional dependencies (e.g. docker).
+Import runtime classes lazily to avoid requiring optional dependencies (e.g. kubernetes).
 Use get_runtime_backend() factory or import specific classes directly.
 """
 

@@ -115,7 +115,7 @@ async def agent_logs(
         return ws_connected(agent_id) if ws_connected else False
 
     async def _container_running() -> bool:
-        """True if Docker runtime and agent container exists and is running."""
+        """True if k8s runtime and agent pod exists and is running."""
         check = getattr(runtime, "_is_container_running", None)
         if check:
             return await check(agent_id)
@@ -133,7 +133,7 @@ async def agent_logs(
                 container_up = await _container_running()
                 if container_up:
                     logger.warning(
-                        "[%s] Agent container running; waiting for WebSocket. "
+                        "[%s] Agent pod running; waiting for WebSocket. "
                         "Check ADMIN_PUBLIC_URL and agent process logs if this persists.",
                         agent_id,
                     )
@@ -175,13 +175,13 @@ async def agent_process_logs(
     tail: int = 200,
     runtime: AgentRuntimeBackend = Depends(get_runtime),
 ):
-    """Return the last *tail* lines of the worker subprocess/container logs."""
+    """Return the last *tail* lines of the worker subprocess/pod logs."""
     _verify_token(request)
 
-    # Try docker container logs first
-    docker_logs_getter = getattr(runtime, "get_container_logs", None)
-    if docker_logs_getter:
-        content = docker_logs_getter(agent_id, tail=tail)
+    # Try k8s pod logs first (get_container_logs is the shared interface name)
+    pod_logs_getter = getattr(runtime, "get_container_logs", None)
+    if pod_logs_getter:
+        content = pod_logs_getter(agent_id, tail=tail)
         if content:
             return PlainTextResponse(content)
 
@@ -208,19 +208,19 @@ async def agent_process_logs_stream(
     runtime: AgentRuntimeBackend = Depends(get_runtime),
     process_log_store: ProcessLogStore = Depends(get_process_log_store),
 ):
-    """SSE stream that tails the worker subprocess/container logs (like `tail -f`)."""
+    """SSE stream that tails the worker subprocess/pod logs (like `tail -f`)."""
     _verify_token(request)
 
-    # Check if we have docker streaming capability
-    docker_stream_getter = getattr(runtime, "stream_container_logs", None)
+    # Check if runtime supports pod/container log streaming
+    pod_stream_getter = getattr(runtime, "stream_container_logs", None)
     log_path = _resolve_worker_log(runtime, agent_id)
 
     async def tail_stream():
         try:
             yield {"event": "ping", "data": ""}
 
-            # Try docker container log streaming first
-            if docker_stream_getter:
+            # Try k8s pod / container log streaming first
+            if pod_stream_getter:
                 # Backlog from RAM when available (instant for reconnects)
                 backlog = process_log_store.get_recent(agent_id, limit=PROCESS_LOG_TAIL_BACKLOG)
                 tail_lines = 0 if backlog else PROCESS_LOG_TAIL_BACKLOG
@@ -229,7 +229,7 @@ async def agent_process_logs_stream(
                         "event": "message",
                         "data": json.dumps({"line": line}),
                     }
-                gen = docker_stream_getter(agent_id, tail=tail_lines)
+                gen = pod_stream_getter(agent_id, tail=tail_lines)
                 loop = asyncio.get_running_loop()
 
                 def _next_line(g):
@@ -249,7 +249,7 @@ async def agent_process_logs_stream(
                 except StopIteration:
                     pass
                 except Exception as exc:
-                    logger.warning(f"Docker log stream error for agent {agent_id}: {exc}")
+                    logger.warning(f"Pod log stream error for agent {agent_id}: {exc}")
                 return
 
             # Fall back to subprocess log file
