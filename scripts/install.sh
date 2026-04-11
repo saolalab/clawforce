@@ -281,29 +281,10 @@ install_k3s_wsl2() {
 
 # ── macOS ─────────────────────────────────────────────────────────────────────
 # k3s does not run natively on macOS (Linux kernel required).
-# We support two paths:
-#   1. k3d  — k3s packaged inside a Docker/OrbStack container (recommended for CI / devs)
-#   2. Rancher Desktop — GUI app that ships a k3s VM; kubectl is auto-configured
+# We use k3d — k3s packaged inside a Docker/OrbStack/Colima container.
+# No VM management required; Docker Desktop or a compatible runtime is the only prerequisite.
 install_k3s_macos() {
-    echo ""
-    echo "  k3s requires a Linux kernel and cannot run natively on macOS."
-    echo "  Choose an installation method:"
-    echo ""
-    echo "  [1] k3d (k3s in Docker) — lightweight, great for development"
-    echo "      Requires: Docker Desktop, OrbStack, or Colima"
-    echo ""
-    echo "  [2] Rancher Desktop — full GUI app with built-in k3s VM"
-    echo "      Download: https://rancherdesktop.io"
-    echo ""
-    printf "  Your choice [1/2] (default: 1): "
-    read -r choice
-    choice="${choice:-1}"
-
-    case "$choice" in
-        1) install_k3d_macos ;;
-        2) guide_rancher_desktop_macos ;;
-        *) die "Invalid choice. Run the script again." ;;
-    esac
+    install_k3d_macos
 }
 
 install_k3d_macos() {
@@ -354,28 +335,6 @@ install_k3d_macos() {
     warn "Access Clawforce at http://localhost:${PORT} (k3d load-balancer)"
 }
 
-guide_rancher_desktop_macos() {
-    echo ""
-    if command_exists kubectl && kubectl_cmd get nodes &>/dev/null 2>&1; then
-        success "Rancher Desktop is already running — proceeding with deployment."
-        return 0
-    fi
-
-    echo "  Please install and start Rancher Desktop:"
-    echo ""
-    if command_exists brew; then
-        echo "    brew install --cask rancher"
-        echo "    # Then open Rancher Desktop from Applications and wait for it to start."
-    else
-        echo "    Download from: https://rancherdesktop.io"
-    fi
-    echo ""
-    echo "  After Rancher Desktop is running, re-run this installer:"
-    echo "    curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | bash"
-    echo ""
-    exit 0
-}
-
 # ── Windows (Git Bash / MSYS2 — not WSL2) ────────────────────────────────────
 guide_windows_shell() {
     echo ""
@@ -387,13 +346,9 @@ guide_windows_shell() {
     echo "      Install WSL2:  https://learn.microsoft.com/windows/wsl/install"
     echo "      Then run this script inside your WSL2 terminal."
     echo ""
-    echo "  [B] Native PowerShell installer"
+    echo "  [B] Native PowerShell installer (uses k3d + Docker Desktop — no VM)"
     echo "      Run in an elevated PowerShell (Administrator):"
     echo "      irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 | iex"
-    echo ""
-    echo "  [C] Rancher Desktop for Windows (GUI)"
-    echo "      https://rancherdesktop.io — ships kubectl + k3s VM"
-    echo "      After installing, kubectl will be in PATH; re-run this script."
     echo ""
     printf "  Continue anyway (kubectl must already be in PATH)? [y/N]: "
     read -r response

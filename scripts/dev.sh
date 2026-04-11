@@ -89,13 +89,11 @@ fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 if $DO_BUILD; then
-    # Detect image builder: nerdctl (Rancher Desktop) > docker
-    if command -v nerdctl &>/dev/null; then
-        BUILDER="nerdctl"
-    elif command -v docker &>/dev/null; then
+    # Detect image builder
+    if command -v docker &>/dev/null; then
         BUILDER="docker"
     else
-        warn "Neither nerdctl nor docker found. Install one to build images."
+        warn "docker not found. Install Docker Desktop, OrbStack, or Colima to build images."
         exit 1
     fi
 
@@ -103,20 +101,18 @@ if $DO_BUILD; then
     $BUILDER build -t "$IMAGE" -f "$PROJECT_ROOT/deploy/Dockerfile" "$PROJECT_ROOT"
     ok "Image built: $IMAGE"
 
-    # Import image into k3s containerd so pods can use it
-    info "Importing $IMAGE into k3s containerd ..."
-    if command -v nerdctl &>/dev/null; then
-        # Rancher Desktop: nerdctl images are already in containerd used by k3s
-        ok "Image already in k3s containerd (nerdctl shares the same containerd)"
-    elif command -v docker &>/dev/null && command -v k3s &>/dev/null; then
-        docker save "$IMAGE" | sudo k3s ctr images import -
-        ok "Image imported into k3s"
-    elif command -v k3d &>/dev/null; then
+    # Import image into the cluster
+    info "Importing $IMAGE into cluster ..."
+    if command -v k3d &>/dev/null && k3d cluster list 2>/dev/null | grep -q "^clawforce"; then
         k3d image import "$IMAGE"
         ok "Image imported via k3d"
+    elif command -v docker &>/dev/null && command -v k3s &>/dev/null; then
+        docker save "$IMAGE" | sudo k3s ctr images import -
+        ok "Image imported into k3s (Linux)"
     else
-        warn "Could not import image into k3s containerd automatically."
-        warn "You may need to run: docker save $IMAGE | sudo k3s ctr images import -"
+        warn "Could not import image automatically."
+        warn "If using k3d: k3d image import $IMAGE"
+        warn "If using k3s on Linux: docker save $IMAGE | sudo k3s ctr images import -"
     fi
 else
     info "Skipping build (--no-build)"

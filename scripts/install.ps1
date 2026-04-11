@@ -175,57 +175,21 @@ Write-Info "OS: Windows  Arch: $($env:PROCESSOR_ARCHITECTURE)"
 # k3s installation helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-function Install-ViaRancherDesktop {
-    <#
-    .SYNOPSIS
-        Downloads and launches the Rancher Desktop installer, then waits for kubectl.
-    #>
-    Write-Info "Downloading Rancher Desktop..."
-
-    # Resolve latest release from GitHub
-    $arch = $env:PROCESSOR_ARCHITECTURE
-    $rdArch = if ($arch -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
-    $rdTag  = 'latest'
-    try {
-        $rel  = Invoke-RestMethod -Uri 'https://api.github.com/repos/rancher-sandbox/rancher-desktop/releases/latest' -UseBasicParsing
-        $rdTag = $rel.tag_name
-    } catch {
-        Write-Warn "Could not fetch latest Rancher Desktop tag — trying 'latest' redirect."
-    }
-
-    $installerName = "Rancher.Desktop.Setup.$rdTag.$rdArch.exe"
-    $installerUrl  = "https://github.com/rancher-sandbox/rancher-desktop/releases/download/$rdTag/$installerName"
-    $installerPath = Join-Path $env:TEMP $installerName
-
-    Invoke-Download $installerUrl $installerPath
-
-    Write-Info "Launching Rancher Desktop installer (follow the prompts)..."
-    Start-Process -FilePath $installerPath -ArgumentList '/S' -Wait   # /S for silent if supported
-
-    Write-Host ""
-    Write-Warn "Rancher Desktop has been installed."
-    Write-Warn "Please:"
-    Write-Host "  1. Open Rancher Desktop from the Start Menu."
-    Write-Host "  2. Wait for the k3s VM to finish starting (status bar turns green)."
-    Write-Host "  3. Re-run this installer:"
-    Write-Host "       irm https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.ps1 | iex"
-    Write-Host ""
-    exit 0
-}
-
 function Install-ViaK3d {
     <#
     .SYNOPSIS
         Installs k3d (requires Docker Desktop or compatible runtime) and creates a cluster.
     #>
-    # Verify Docker is running
+    # Verify a container runtime is available
     if (-not (Command-Exists 'docker')) {
         Write-Host ""
-        Write-Err "Docker not found. k3d requires Docker Desktop (or another compatible runtime)."
+        Write-Err "No container runtime found. k3d requires Docker Desktop or a compatible runtime."
         Write-Host ""
-        Write-Host "  Install Docker Desktop: https://docs.docker.com/desktop/install/windows-install/"
+        Write-Host "  Options:"
+        Write-Host "    Docker Desktop:  https://docs.docker.com/desktop/install/windows-install/"
+        Write-Host "    OrbStack:        https://orbstack.dev  (via WSL2)"
         Write-Host ""
-        Fail "Install Docker Desktop then re-run this script."
+        Fail "Install a container runtime then re-run this script."
     }
     try {
         $null = & docker info 2>&1
@@ -273,17 +237,6 @@ function Install-ViaK3d {
     Write-Warn "Access Clawforce at http://localhost:${Port} via k3d load-balancer"
 }
 
-function Guide-Wsl2 {
-    Write-Host ""
-    Write-Info "Run the bash installer inside WSL2:"
-    Write-Host ""
-    Write-Host "  wsl curl -fsSL https://raw.githubusercontent.com/saolalab/clawforce/main/scripts/install.sh | wsl bash"
-    Write-Host ""
-    Write-Host "  (If WSL2 is not installed:  winget install Microsoft.WSL)"
-    Write-Host ""
-    exit 0
-}
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Main k3s / kubectl check
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,26 +251,10 @@ function Check-And-Install-K3s {
         return
     }
 
-    Write-Host ""
-    Write-Host "  No accessible k8s cluster found." -ForegroundColor Yellow
-    Write-Host "  How would you like to install k3s?" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  [1] Rancher Desktop  (recommended) — GUI app with built-in k3s VM + kubectl"
-    Write-Host "  [2] k3d              — k3s inside Docker (requires Docker Desktop)"
-    Write-Host "  [3] WSL2             — run bash installer inside Windows Subsystem for Linux"
-    Write-Host ""
-    $choice = Read-Host "  Your choice [1/2/3] (default: 1)"
-    $choice = if ($choice) { $choice.Trim() } else { '1' }
-
-    switch ($choice) {
-        '1' { Install-ViaRancherDesktop }
-        '2' { Install-ViaK3d }
-        '3' { Guide-Wsl2 }
-        default { Fail "Invalid choice '$choice'." }
-    }
+    Install-ViaK3d
 
     if (-not (Test-ClusterReachable)) {
-        Fail "k8s cluster still not reachable. Check Rancher Desktop or k3d status."
+        Fail "k8s cluster still not reachable. Check that Docker Desktop is running and k3d cluster started successfully."
     }
 }
 
