@@ -31,6 +31,16 @@ class Config(_BaseConfig):
         """Match provider config and its registry name. Returns (config, spec_name)."""
         model_lower = (model or self.agents.defaults.model).lower()
 
+        # Explicit routing by "<provider>/..." prefix — deterministic and works
+        # for providers with no keywords (e.g. "custom/my-model").
+        if "/" in model_lower:
+            prefix = model_lower.split("/", 1)[0]
+            spec = find_by_name(prefix)
+            if spec:
+                p = getattr(self.providers, spec.name, None)
+                if p is not None:
+                    return p, spec.name
+
         # First pass: match by keyword in model name + has API key
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)

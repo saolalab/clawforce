@@ -10,13 +10,13 @@ export function ModelProviderSection({
   model,
   savedProviders,
   onModelChange,
-  onProviderKeyChange,
+  onProviderChange,
 }: {
   agentId: string;
   model: string;
   savedProviders?: Record<string, Record<string, unknown>>;
   onModelChange: (model: string) => void;
-  onProviderKeyChange: (provider: string, apiKey: string) => void;
+  onProviderChange: (provider: string, patch: { apiKey?: string; apiBase?: string }) => void;
 }) {
   // Derive initial provider from current model
   const detected = detectProvider(model);
@@ -48,6 +48,20 @@ export function ModelProviderSection({
       setApiKey(savedKey);
     }
   }, [savedKey]);
+
+  // Custom provider: OpenAI-compatible base URL (snake/camel tolerant)
+  const savedBase = selectedProvider && savedProviders?.[selectedProvider]
+    ? ((savedProviders[selectedProvider].apiBase ?? savedProviders[selectedProvider].api_base ?? "") as string)
+    : "";
+  const [apiBase, setApiBase] = useState(savedBase);
+
+  const prevSavedBaseRef = useRef(savedBase);
+  useEffect(() => {
+    if (savedBase !== prevSavedBaseRef.current) {
+      prevSavedBaseRef.current = savedBase;
+      setApiBase(savedBase);
+    }
+  }, [savedBase]);
 
   const [models, setModels] = useState<FetchedModel[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -157,17 +171,27 @@ export function ModelProviderSection({
     if (providerDef?.oauth) return; // handled by the OAuth effect above
     const isStatic = ["bedrock", "azure"].includes(selectedProvider);
     const hasSavedKey = !!(savedKey && savedKey.length > 0);
-    if (isStatic || hasSavedKey) {
+    const isCustom = selectedProvider === "custom";
+    const hasSavedBase = !!(savedBase && savedBase.length > 0);
+    // Custom needs a base URL; API key is optional (self-hosted endpoints).
+    const canAutoFetch = isStatic || (isCustom ? hasSavedBase : hasSavedKey);
+    if (canAutoFetch) {
       setLoadingModels(true);
       setModelError("");
-      // For saved (redacted) keys, pass agentId so backend uses stored key
+      // For saved (redacted) keys/bases, pass agentId so backend uses stored values
       const keyToSend = savedKey.startsWith("***") ? "" : savedKey;
-      api.providers.listModels(selectedProvider, keyToSend, keyToSend ? undefined : agentId)
+      const baseToSend = savedBase.startsWith("***") ? "" : savedBase;
+      api.providers.listModels(
+        selectedProvider,
+        keyToSend,
+        keyToSend && (!isCustom || baseToSend) ? undefined : agentId,
+        isCustom ? baseToSend : undefined,
+      )
         .then((r) => setModels(r.models))
         .catch(() => {})
         .finally(() => setLoadingModels(false));
     }
-  }, [selectedProvider, agentId, savedKey, providerDef?.oauth]);
+  }, [selectedProvider, agentId, savedKey, savedBase, providerDef?.oauth]);
 
   async function handleOAuthAuthorize() {
     setOauthLoading(true);
@@ -187,13 +211,24 @@ export function ModelProviderSection({
 
   function doFetch() {
     if (!selectedProvider) return;
-    // Use explicit key if available, otherwise fall back to stored key via agentId
+    const isCustom = selectedProvider === "custom";
     const hasExplicitKey = apiKey.length > 0 && !apiKey.startsWith("***");
-    if (!hasExplicitKey && !savedKey) return;
+    const hasExplicitBase = apiBase.length > 0 && !apiBase.startsWith("***");
+    // Custom requires a base URL; other providers require a key.
+    if (isCustom) {
+      if (!hasExplicitBase && !savedBase) return;
+    } else if (!hasExplicitKey && !savedKey) {
+      return;
+    }
     setLoadingModels(true);
     setModelError("");
     setModels([]);
-    api.providers.listModels(selectedProvider, hasExplicitKey ? apiKey : "", agentId)
+    api.providers.listModels(
+      selectedProvider,
+      hasExplicitKey ? apiKey : "",
+      agentId,
+      isCustom ? (hasExplicitBase ? apiBase : "") : undefined,
+    )
       .then((r) => setModels(r.models))
       .catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -213,6 +248,10 @@ export function ModelProviderSection({
       ? ((savedProviders[field].apiKey ?? savedProviders[field].api_key ?? "") as string)
       : "";
     setApiKey(typeof saved === "string" && !saved.startsWith("***") ? saved : "");
+    const savedBaseForField = field && savedProviders?.[field]
+      ? ((savedProviders[field].apiBase ?? savedProviders[field].api_base ?? "") as string)
+      : "";
+    setApiBase(typeof savedBaseForField === "string" && !savedBaseForField.startsWith("***") ? savedBaseForField : "");
     setModels([]);
     setModelError("");
     setModelSearch("");
@@ -220,9 +259,12 @@ export function ModelProviderSection({
 
   function handleModelSelect(modelId: string) {
     const fullModel = `${selectedProvider}/${modelId}`;
-    // Save the provider API key into agent.providers so it's included in "Save Changes"
-    if (needsKey && apiKey) {
-      onProviderKeyChange(selectedProvider, apiKey);
+    // Persist API key / base URL into agent.providers so they're included in "Save Changes"
+    if (needsKey) {
+      const patch: { apiKey?: string; apiBase?: string } = {};
+      if (apiKey && !apiKey.startsWith("***")) patch.apiKey = apiKey;
+      if (selectedProvider === "custom" && apiBase && !apiBase.startsWith("***")) patch.apiBase = apiBase;
+      if (Object.keys(patch).length > 0) onProviderChange(selectedProvider, patch);
     }
     // OAuth providers: no key to propagate — credentials live in the OS credential store
     onModelChange(fullModel);
@@ -235,6 +277,9 @@ export function ModelProviderSection({
     : "";
 
   const hasUsableKey = apiKey.length > 0 || !!(savedKey && savedKey.length > 0);
+  const hasUsableBase = apiBase.length > 0 || !!(savedBase && savedBase.length > 0);
+  // Custom only needs a base URL to fetch models; API key is optional.
+  const canFetchModels = selectedProvider === "custom" ? hasUsableBase : hasUsableKey;
 
   const filteredModels = modelSearch
     ? models.filter((m) =>
@@ -343,6 +388,24 @@ export function ModelProviderSection({
         )}
       </div>
 
+      {/* Base URL input — only for the Custom (OpenAI-compatible) provider */}
+      {selectedProvider === "custom" && (
+        <div>
+          <label className={css.label}>Base URL</label>
+          <input
+            className={`${css.input} w-full`}
+            type="text"
+            value={apiBase}
+            onChange={(e) => setApiBase(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") doFetch(); }}
+            placeholder="https://api.example.com/v1"
+          />
+          <p className="mt-1 text-[10px] text-claude-text-muted">
+            Must be an OpenAI API compatible endpoint (e.g. vLLM, LM Studio, a private gateway).
+          </p>
+        </div>
+      )}
+
       {/* Row 2: Model + Fetch models */}
       {selectedProvider && (
         <div>
@@ -368,7 +431,9 @@ export function ModelProviderSection({
                   ? "Loading models…"
                   : models.length === 0
                     ? (needsKey
-                        ? (savedKey ? "Click Fetch models to load" : "Enter API key and fetch models")
+                        ? (selectedProvider === "custom"
+                            ? (hasUsableBase ? "Click Fetch models to load" : "Enter base URL and fetch models")
+                            : (savedKey ? "Click Fetch models to load" : "Enter API key and fetch models"))
                         : providerDef?.oauth
                           ? (oauthAuthorized ? "Select a model…" : "Connect first to browse models")
                           : "Select a provider first")
@@ -438,7 +503,7 @@ export function ModelProviderSection({
             <button
               type="button"
               onClick={doFetch}
-              disabled={!hasUsableKey || loadingModels}
+              disabled={!canFetchModels || loadingModels}
               className={`${css.btn} shrink-0 text-claude-accent ring-1 ring-claude-accent/30 hover:bg-claude-accent/5 disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               {loadingModels ? (
@@ -456,11 +521,14 @@ export function ModelProviderSection({
             <button
               type="button"
               onClick={() => {
-                const custom = prompt("Enter model ID (e.g. claude-sonnet-4-20250514):", currentModelDisplay);
-                if (custom !== null && custom.trim()) {
-                  const fullModel = selectedProvider ? `${selectedProvider}/${custom.trim()}` : custom.trim();
-                  if (needsKey && apiKey) {
-                    onProviderKeyChange(selectedProvider, apiKey);
+                const manual = prompt("Enter model ID (e.g. claude-sonnet-4-20250514):", currentModelDisplay);
+                if (manual !== null && manual.trim()) {
+                  const fullModel = selectedProvider ? `${selectedProvider}/${manual.trim()}` : manual.trim();
+                  if (needsKey) {
+                    const patch: { apiKey?: string; apiBase?: string } = {};
+                    if (apiKey && !apiKey.startsWith("***")) patch.apiKey = apiKey;
+                    if (selectedProvider === "custom" && apiBase && !apiBase.startsWith("***")) patch.apiBase = apiBase;
+                    if (Object.keys(patch).length > 0) onProviderChange(selectedProvider, patch);
                   }
                   onModelChange(fullModel);
                 }

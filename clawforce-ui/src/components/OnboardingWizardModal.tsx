@@ -231,11 +231,11 @@ export function OnboardingWizardModal({
               model={wizardAgent.model}
               savedProviders={wizardAgent.providers as Record<string, Record<string, unknown>> | undefined}
               onModelChange={(v) => update({ model: v })}
-              onProviderKeyChange={(provider, key) => {
+              onProviderChange={(provider, patch) => {
                 update({
                   providers: {
                     ...wizardAgent.providers,
-                    [provider]: { ...(wizardAgent.providers?.[provider] || {}), apiKey: key },
+                    [provider]: { ...(wizardAgent.providers?.[provider] || {}), ...patch },
                   },
                 });
               }}

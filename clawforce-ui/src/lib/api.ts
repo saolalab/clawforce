@@ -336,10 +336,10 @@ export const api = {
       post<{ ok: boolean }>(`/plans/${planId}/workspace-folder/${path}`),
   },
   providers: {
-    listModels: (provider: string, apiKey: string, agentId?: string) =>
+    listModels: (provider: string, apiKey: string, agentId?: string, apiBase?: string) =>
       post<{ provider: string; prefix: string; models: { id: string; name: string }[] }>(
         "/providers/models",
-        { provider, api_key: apiKey, agent_id: agentId || "" },
+        { provider, api_key: apiKey, agent_id: agentId || "", api_base: apiBase || "" },
       ),
     oauthStatus: (provider: string, agentId?: string) =>
       request<{ provider: string; authorized: boolean; account_id?: string }>(

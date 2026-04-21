@@ -29,8 +29,14 @@ class CustomProvider(LLMProvider):
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ) -> LLMResponse:
+        # The config stores models as "custom/<real_id>" so provider routing
+        # can find us, but the upstream OpenAI-compatible endpoint only knows
+        # the bare id — strip the routing prefix before sending.
+        resolved_model = model or self.default_model
+        if resolved_model.startswith("custom/"):
+            resolved_model = resolved_model[len("custom/") :]
         kwargs: dict[str, Any] = {
-            "model": model or self.default_model,
+            "model": resolved_model,
             "messages": messages,
             "max_tokens": max(1, max_tokens),
             "temperature": temperature,

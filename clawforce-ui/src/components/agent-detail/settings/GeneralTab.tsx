@@ -233,11 +233,11 @@ export function GeneralTab({ agentId, agent, update, updateTools }: { agentId: s
                 model={agent.model}
                 savedProviders={agent.providers as Record<string, Record<string, unknown>> | undefined}
                 onModelChange={(v) => update({ model: v })}
-                onProviderKeyChange={(provider, key) => {
+                onProviderChange={(provider, patch) => {
                   update({
                     providers: {
                       ...agent.providers,
-                      [provider]: { ...(agent.providers?.[provider] || {}), apiKey: key },
+                      [provider]: { ...(agent.providers?.[provider] || {}), ...patch },
                     },
                   });
                 }}

@@ -132,6 +132,7 @@ export const PROVIDER_DEFS: ProviderDef[] = [
   { field: "chatgpt", label: "ChatGPT Plus", keywords: ["chatgpt"], oauth: true },
   { field: "openai_codex", label: "OpenAI Codex", keywords: ["openai-codex", "codex"], oauth: true },
   // API key / token providers
+  { field: "custom", label: "Custom (OpenAI-compatible)", keywords: ["custom/"] },
   { field: "anthropic", label: "Anthropic", keywords: ["anthropic", "claude"] },
   { field: "openai", label: "OpenAI", keywords: ["openai", "gpt", "o1", "o3", "o4"] },
   { field: "openrouter", label: "OpenRouter", keywords: ["openrouter"] },

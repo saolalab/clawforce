@@ -211,6 +211,7 @@ class ListModelsRequest(BaseModel):
     provider: str
     api_key: str = ""
     agent_id: str = ""
+    api_base: str = ""
 
 
 @router.post("/api/providers/models")
@@ -225,6 +226,57 @@ async def list_provider_models(
     provider is read from the agent's persisted config.
     """
     provider = body.provider.lower()
+
+    # Custom (OpenAI-compatible) provider: user-supplied base URL, GET {base}/models.
+    if provider == "custom":
+        api_base = body.api_base
+        api_key = body.api_key
+        if body.agent_id:
+            stored_cfg = agent_config_store.get_config(body.agent_id) or {}
+            stored = (stored_cfg.get("providers") or {}).get("custom") or {}
+            if not api_base or api_base.startswith("***"):
+                api_base = stored.get("api_base") or stored.get("apiBase") or ""
+            if not api_key or api_key.startswith("***"):
+                api_key = stored.get("api_key") or stored.get("apiKey") or ""
+        if not api_base:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Base URL is required for custom provider",
+            )
+        url = api_base.rstrip("/") + "/models"
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url, headers=headers)
+            if resp.status_code == 401:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid API key",
+                )
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Provider returned {resp.status_code}: {resp.text[:200]}",
+                )
+            data = resp.json()
+            models = [
+                {"id": m["id"], "name": m.get("id", m["id"])}
+                for m in sorted(data.get("data", []), key=lambda m: m["id"])
+            ]
+            return {"provider": "custom", "prefix": "custom", "models": models}
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Timed out connecting to provider",
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to fetch models: {str(e)[:200]}",
+            )
+
     ep = PROVIDER_ENDPOINTS.get(provider)
     if not ep:
         raise HTTPException(
